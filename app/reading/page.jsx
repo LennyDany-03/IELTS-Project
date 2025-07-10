@@ -43,7 +43,7 @@ const ReadingPage = () => {
     const loadQuiz = async () => {
       try {
         setConnectionStatus("connecting")
-        const response = await fetch("http://localhost:8000/api/reading/practice")
+        const response = await fetch("https://ielts-backend-t6sq.onrender.com/api/reading/practice")
 
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`)
@@ -65,7 +65,7 @@ const ReadingPage = () => {
       } catch (error) {
         console.error("Failed to load reading quiz:", error)
         setBackendError(
-          "Failed to load reading quiz from backend. Please check if your server is running on http://localhost:8000",
+          "Failed to load reading quiz from backend. Please check if your server is running on https://ielts-backend-t6sq.onrender.com",
         )
         setConnectionStatus("disconnected")
       }
@@ -134,7 +134,7 @@ const ReadingPage = () => {
     setBackendError("")
 
     try {
-      const response = await fetch("http://localhost:8000/api/reading/submit", {
+      const response = await fetch("https://ielts-backend-t6sq.onrender.com/api/reading/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -186,7 +186,7 @@ const ReadingPage = () => {
     // Reload quiz from backend
     try {
       setConnectionStatus("connecting")
-      const response = await fetch("http://localhost:8000/api/reading/practice")
+      const response = await fetch("https://ielts-backend-t6sq.onrender.com/api/reading/practice")
       const data = await response.json()
 
       if (data && data.questions && Array.isArray(data.questions)) {
@@ -304,7 +304,7 @@ const ReadingPage = () => {
                 <div className="text-left bg-gray-800/50 rounded-lg p-4">
                   <h3 className="text-white font-semibold mb-2">Troubleshooting:</h3>
                   <ul className="text-gray-300 text-sm space-y-1">
-                    <li>• Make sure your backend server is running on http://localhost:8000</li>
+                    <li>• Make sure your backend server is running on https://ielts-backend-t6sq.onrender.com</li>
                     <li>• Check if the /api/reading/practice endpoint is available</li>
                     <li>• Verify CORS settings allow requests from this domain</li>
                   </ul>

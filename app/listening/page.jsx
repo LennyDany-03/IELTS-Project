@@ -49,7 +49,7 @@ const ListeningPage = () => {
     const loadQuiz = async () => {
       try {
         setConnectionStatus("connecting")
-        const response = await fetch("http://localhost:8000/api/listening/practice")
+        const response = await fetch("https://ielts-backend-t6sq.onrender.com/api/listening/practice")
 
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`)
@@ -72,7 +72,7 @@ const ListeningPage = () => {
       } catch (error) {
         console.error("Failed to load listening quiz:", error)
         setBackendError(
-          "Failed to load listening quiz from backend. Please check if your server is running on http://localhost:8000",
+          "Failed to load listening quiz from backend. Please check if your server is running on https://ielts-backend-t6sq.onrender.com",
         )
         setConnectionStatus("disconnected")
       }
@@ -124,7 +124,7 @@ const ListeningPage = () => {
     setBackendError("")
 
     try {
-      const response = await fetch("http://localhost:8000/api/listening/submit", {
+      const response = await fetch("https://ielts-backend-t6sq.onrender.com/api/listening/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -213,7 +213,7 @@ const ListeningPage = () => {
   const testConnection = async () => {
     try {
       setConnectionStatus("connecting")
-      const response = await fetch("http://localhost:8000/api/listening/practice")
+      const response = await fetch("https://ielts-project-gilt.vercel.app/api/listening/practice")
       if (response.ok) {
         setConnectionStatus("connected")
         setBackendError("")
@@ -319,7 +319,7 @@ const ListeningPage = () => {
                 <div className="text-left bg-gray-800/50 rounded-lg p-4">
                   <h3 className="text-white font-semibold mb-2">Troubleshooting:</h3>
                   <ul className="text-gray-300 text-sm space-y-1">
-                    <li>• Make sure your backend server is running on http://localhost:8000</li>
+                    <li>• Make sure your backend server is running on https://ielts-backend-t6sq.onrender.com</li>
                     <li>• Check if the /api/listening/practice endpoint is available</li>
                     <li>• Verify CORS settings allow requests from this domain</li>
                   </ul>
