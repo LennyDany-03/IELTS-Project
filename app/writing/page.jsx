@@ -151,7 +151,7 @@ Essay:
   const testConnection = async () => {
     try {
       setConnectionStatus("testing")
-      const res = await fetch("http://localhost:8000/api/health", {
+      const res = await fetch("https://ielts-backend-t6sq.onrender.com/api/health", {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -192,7 +192,7 @@ Essay:
       // Use the enhanced structured prompt
       const structuredPrompt = createAIPrompt(essay.trim())
 
-      const res = await fetch("http://localhost:8000/api/essay/evaluate-essay", {
+      const res = await fetch("https://ielts-backend-t6sq.onrender.com/api/essay/evaluate-essay", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

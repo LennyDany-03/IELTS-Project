@@ -61,7 +61,7 @@ const SpeakingPage = () => {
 
   const checkBackendStatus = async () => {
     try {
-      const response = await fetch("http://localhost:8000/api/speech/evaluate-transcript", {
+      const response = await fetch("https://ielts-backend-t6sq.onrender.com/api/speech/evaluate-transcript", {
         method: "GET",
         headers: { "Content-Type": "application/json" },
       })

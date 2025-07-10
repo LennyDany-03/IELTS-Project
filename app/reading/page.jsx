@@ -204,7 +204,7 @@ const ReadingPage = () => {
   const testConnection = async () => {
     try {
       setConnectionStatus("connecting")
-      const response = await fetch("http://localhost:8000/api/reading/practice")
+      const response = await fetch("https://ielts-backend-t6sq.onrender.com/api/reading/practice")
       if (response.ok) {
         setConnectionStatus("connected")
         setBackendError("")

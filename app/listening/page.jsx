@@ -195,7 +195,7 @@ const ListeningPage = () => {
     // Reload quiz from backend
     try {
       setConnectionStatus("connecting")
-      const response = await fetch("http://localhost:8000/api/listening/practice")
+      const response = await fetch("https://ielts-backend-t6sq.onrender.com/api/listening/practice")
       const data = await response.json()
 
       if (data && data.questions && Array.isArray(data.questions)) {
