@@ -1,13 +1,60 @@
 "use client"
 
-import { Brain, Menu, X, User, LogIn } from "lucide-react"
-import { useState } from "react"
+import { Brain, Menu, X, User, LogIn, LogOut, ChevronDown } from "lucide-react"
+import { useState, useEffect } from "react"
+import { createBrowserClient } from "@supabase/ssr"
+import { useRouter } from "next/navigation"
 
 const Navbar = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
+  const [user, setUser] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const router = useRouter()
+
+  const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
+
+  useEffect(() => {
+    const getUser = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      setUser(user)
+      setLoading(false)
+    }
+
+    getUser()
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      setUser(session?.user || null)
+      setLoading(false)
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
 
   const toggleMenu = () => {
     setIsMenuOpen(!isMenuOpen)
+  }
+
+  const toggleDropdown = () => {
+    setIsDropdownOpen(!isDropdownOpen)
+  }
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut()
+    setIsDropdownOpen(false)
+    router.push("/")
+  }
+
+  const handleRegisterClick = () => {
+    router.push("/register")
+  }
+
+  const handleSignInClick = () => {
+    router.push("/auth")
   }
 
   return (
@@ -17,12 +64,12 @@ const Navbar = () => {
           {/* Logo */}
           <div className="flex-shrink-0 animate-slide-in-left">
             <a href="/">
-                <div className="flex items-center group cursor-pointer">
+              <div className="flex items-center group cursor-pointer">
                 <Brain className="h-8 w-8 text-blue-400 mr-3 group-hover:animate-bounce-gentle transition-smooth" />
                 <span className="text-2xl font-bold text-white group-hover:text-blue-400 transition-smooth">
                   IELTS AI Coach
                 </span>
-            </div>
+              </div>
             </a>
           </div>
 
@@ -67,19 +114,69 @@ const Navbar = () => {
             </div>
           </div>
 
-          {/* User Options */}
           <div className="hidden md:block animate-slide-in-right">
             <div className="ml-4 flex items-center space-x-4">
-              <a href="/auth">
-                <button className="text-gray-300 hover:text-blue-400 px-4 py-2 text-sm font-medium transition-smooth border border-gray-700 rounded-lg hover:border-blue-400 hover:shadow-lg hover:shadow-blue-400/20 flex items-center group btn-animate">
-                  <LogIn className="h-4 w-4 mr-2 group-hover:animate-bounce-gentle" />
-                  Sign In
-                </button>
-              </a>
-              <button className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-6 py-2 rounded-lg text-sm font-medium transition-smooth shadow-lg hover:shadow-blue-500/25 hover-lift btn-animate flex items-center group">
-                <User className="h-4 w-4 mr-2 group-hover:animate-bounce-gentle" />
-                Register
-              </button>
+              {loading ? (
+                <div className="w-8 h-8 bg-gray-700 rounded-full animate-pulse"></div>
+              ) : user ? (
+                <div className="relative">
+                  <button
+                    onClick={toggleDropdown}
+                    className="flex items-center space-x-3 text-white hover:text-blue-400 transition-smooth group"
+                  >
+                    <img
+                      src={
+                        user.user_metadata?.avatar_url ||
+                        user.user_metadata?.picture ||
+                        "/placeholder.svg?height=32&width=32&query=user+avatar"
+                      }
+                      alt="Profile"
+                      className="w-8 h-8 rounded-full border-2 border-gray-600 group-hover:border-blue-400 transition-smooth"
+                    />
+                    <span className="text-sm font-medium">
+                      {user.user_metadata?.full_name || user.user_metadata?.name || "User"}
+                    </span>
+                    <ChevronDown className={`h-4 w-4 transition-transform ${isDropdownOpen ? "rotate-180" : ""}`} />
+                  </button>
+
+                  {isDropdownOpen && (
+                    <div className="absolute right-0 mt-2 w-48 bg-gray-800 rounded-lg shadow-xl border border-gray-700 py-2 z-50">
+                      <a
+                        href="/dashboard"
+                        className="block px-4 py-2 text-sm text-gray-300 hover:text-white hover:bg-gray-700 transition-smooth"
+                        onClick={() => setIsDropdownOpen(false)}
+                      >
+                        Dashboard
+                      </a>
+                      <a
+                        href="/profile"
+                        className="block px-4 py-2 text-sm text-gray-300 hover:text-white hover:bg-gray-700 transition-smooth"
+                        onClick={() => setIsDropdownOpen(false)}
+                      >
+                        Profile
+                      </a>
+                      <hr className="my-2 border-gray-700" />
+                      <button
+                        onClick={handleSignOut}
+                        className="w-full text-left px-4 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-gray-700 transition-smooth flex items-center"
+                      >
+                        <LogOut className="h-4 w-4 mr-2" />
+                        Sign Out
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <button
+                    onClick={handleSignInClick}
+                    className="text-gray-300 hover:text-blue-400 px-4 py-2 text-sm font-medium transition-smooth border border-gray-700 rounded-lg hover:border-blue-400 hover:shadow-lg hover:shadow-blue-400/20 flex items-center group btn-animate"
+                  >
+                    <LogIn className="h-4 w-4 mr-2 group-hover:animate-bounce-gentle" />
+                    Login
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
@@ -98,7 +195,6 @@ const Navbar = () => {
           </div>
         </div>
 
-        {/* Mobile Navigation */}
         {isMenuOpen && (
           <div className="md:hidden animate-slide-in-down">
             <div className="px-2 pt-2 pb-3 space-y-1 bg-gray-800/50 backdrop-blur-md rounded-lg mt-2 border border-gray-700">
@@ -137,16 +233,66 @@ const Navbar = () => {
               >
                 Contact
               </a>
-              <div className="px-3 py-2 space-y-2">
-                <button className="w-full text-left text-gray-300 hover:text-blue-400 transition-smooth flex items-center">
-                  <LogIn className="h-4 w-4 mr-2" />
-                  Sign In
-                </button>
-                <button className="w-full bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-smooth btn-animate flex items-center justify-center">
-                  <User className="h-4 w-4 mr-2" />
-                  Register
-                </button>
-              </div>
+
+              {loading ? (
+                <div className="px-3 py-2">
+                  <div className="w-full h-10 bg-gray-700 rounded animate-pulse"></div>
+                </div>
+              ) : user ? (
+                <div className="px-3 py-2 space-y-2 border-t border-gray-700 mt-2 pt-2">
+                  <div className="flex items-center space-x-3 text-white">
+                    <img
+                      src={
+                        user.user_metadata?.avatar_url ||
+                        user.user_metadata?.picture ||
+                        "/placeholder.svg?height=32&width=32&query=user+avatar"
+                      }
+                      alt="Profile"
+                      className="w-8 h-8 rounded-full border-2 border-gray-600"
+                    />
+                    <span className="text-sm font-medium">
+                      {user.user_metadata?.full_name || user.user_metadata?.name || "User"}
+                    </span>
+                  </div>
+                  <a
+                    href="/dashboard"
+                    className="block px-3 py-2 text-gray-300 hover:text-blue-400 transition-smooth rounded-md hover:bg-gray-700/50"
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    Dashboard
+                  </a>
+                  <a
+                    href="/profile"
+                    className="block px-3 py-2 text-gray-300 hover:text-blue-400 transition-smooth rounded-md hover:bg-gray-700/50"
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    Profile
+                  </a>
+                  <button
+                    onClick={() => {
+                      handleSignOut()
+                      setIsMenuOpen(false)
+                    }}
+                    className="w-full text-left px-3 py-2 text-red-400 hover:text-red-300 transition-smooth rounded-md hover:bg-gray-700/50 flex items-center"
+                  >
+                    <LogOut className="h-4 w-4 mr-2" />
+                    Sign Out
+                  </button>
+                </div>
+              ) : (
+                <div className="px-3 py-2 space-y-2 border-t border-gray-700 mt-2 pt-2">
+                  <button
+                    onClick={() => {
+                      handleSignInClick()
+                      setIsMenuOpen(false)
+                    }}
+                    className="w-full text-left text-gray-300 hover:text-blue-400 transition-smooth flex items-center px-3 py-2 rounded-md hover:bg-gray-700/50"
+                  >
+                    <LogIn className="h-4 w-4 mr-2" />
+                    Login
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}

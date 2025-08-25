@@ -1,13 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   User,
   Mail,
   Calendar,
   Target,
   Award,
-  TrendingUp,
   Settings,
   Save,
   ArrowLeft,
@@ -15,26 +14,68 @@ import {
   Edit3,
   CheckCircle,
   AlertTriangle,
-  BarChart3,
   Clock,
   BookOpen,
+  Phone,
+  MapPin,
+  GraduationCap,
+  Globe,
 } from "lucide-react"
+import { createBrowserClient } from "@supabase/ssr"
 import Navbar from "../../components/Navbar"
 import Footer from "../../components/Footer"
 
 const ProfilePage = () => {
   const [isEditing, setIsEditing] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [profileData, setProfileData] = useState({
-    fullName: "Lenny Johnson",
-    email: "lenny.johnson@email.com",
-    joinDate: "2024-01-15",
-    targetBand: 8.0,
-    currentBand: 6.5,
-    studyStreak: 15,
-    totalStudyHours: 45,
-    testsCompleted: 12,
+    full_name: "",
+    email: "",
+    phone_number: "",
+    gender: "",
+    date_of_birth: "",
+    target_ielts_band_score: 7.0,
+    exam_date: "",
+    preferred_exam_type: "",
+    study_plan_preference: "",
+    current_education_level: "",
+    country_of_residence: "",
+    preferred_study_abroad_country: "",
+    skill_focus_areas: [],
+    daily_study_hours: 2,
+    created_at: "",
   })
+
+  const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
+
+  useEffect(() => {
+    loadStudentInfo()
+  }, [])
+
+  const loadStudentInfo = async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data, error } = await supabase.from("studentinfo").select("*").eq("user_id", user.id).single()
+
+      if (error && error.code !== "PGRST116") {
+        console.error("Error loading student info:", error)
+        return
+      }
+
+      if (data) {
+        setProfileData(data)
+      }
+    } catch (error) {
+      console.error("Error:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const [progressData] = useState({
     overall: [
@@ -60,30 +101,70 @@ const ProfilePage = () => {
 
   const achievements = [
     {
-      title: "First Test Completed",
-      description: "Completed your first practice test",
+      title: "Profile Completed",
+      description: "Completed your student information profile",
       earned: true,
-      date: "2024-01-15",
+      date: profileData.created_at ? new Date(profileData.created_at).toLocaleDateString() : null,
     },
-    { title: "Week Warrior", description: "Studied for 7 consecutive days", earned: true, date: "2024-01-22" },
-    { title: "Speaking Star", description: "Achieved band 6+ in speaking", earned: true, date: "2024-01-20" },
-    { title: "Writing Wizard", description: "Achieved band 7+ in writing", earned: true, date: "2024-01-18" },
+    {
+      title: "Target Set",
+      description: "Set your IELTS target band score",
+      earned: !!profileData.target_ielts_band_score,
+      date: null,
+    },
+    {
+      title: "Study Plan Ready",
+      description: "Selected your study plan preference",
+      earned: !!profileData.study_plan_preference,
+      date: null,
+    },
+    { title: "Exam Scheduled", description: "Set your exam date", earned: !!profileData.exam_date, date: null },
     { title: "Perfect Score", description: "Achieve band 9 in any skill", earned: false, date: null },
     { title: "Target Achieved", description: "Reach your target band score", earned: false, date: null },
   ]
 
   const handleInputChange = (e) => {
-    setProfileData({
-      ...profileData,
-      [e.target.name]: e.target.value,
-    })
+    const { name, value, type } = e.target
+    if (type === "checkbox") {
+      const currentAreas = profileData.skill_focus_areas || []
+      const updatedAreas = e.target.checked ? [...currentAreas, value] : currentAreas.filter((area) => area !== value)
+      setProfileData({
+        ...profileData,
+        skill_focus_areas: updatedAreas,
+      })
+    } else {
+      setProfileData({
+        ...profileData,
+        [name]: value,
+      })
+    }
   }
 
-  const saveProfile = () => {
-    setIsEditing(false)
-    // Save to database
-    console.log("Saving profile data:", profileData)
-    alert("Profile updated successfully!")
+  const saveProfile = async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { error } = await supabase.from("studentinfo").upsert({
+        ...profileData,
+        user_id: user.id,
+        updated_at: new Date().toISOString(),
+      })
+
+      if (error) {
+        console.error("Error saving profile:", error)
+        alert("Error saving profile. Please try again.")
+        return
+      }
+
+      setIsEditing(false)
+      alert("Profile updated successfully!")
+    } catch (error) {
+      console.error("Error:", error)
+      alert("Error saving profile. Please try again.")
+    }
   }
 
   const deleteAccount = () => {
@@ -105,6 +186,16 @@ const ProfilePage = () => {
     Writing: Edit3,
     Reading: BookOpen,
     Listening: BookOpen,
+  }
+
+  const skillFocusOptions = ["Speaking", "Writing", "Reading", "Listening", "Grammar", "Vocabulary", "Pronunciation"]
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-white">Loading...</div>
+      </div>
+    )
   }
 
   return (
@@ -132,9 +223,9 @@ const ProfilePage = () => {
             </div>
             <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 flex items-center">
               <User className="h-8 w-8 mr-3 text-blue-400" />
-              Profile & Progress
+              Student Profile
             </h1>
-            <p className="text-gray-400">Manage your account and track your IELTS preparation journey</p>
+            <p className="text-gray-400">Manage your student information and track your IELTS preparation journey</p>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -145,7 +236,7 @@ const ProfilePage = () => {
                 <div className="flex items-center justify-between mb-6">
                   <h2 className="text-xl font-semibold text-white flex items-center">
                     <Settings className="h-5 w-5 mr-2 text-blue-400" />
-                    Profile Information
+                    Personal Information
                   </h2>
                   <button
                     onClick={() => setIsEditing(!isEditing)}
@@ -161,13 +252,15 @@ const ProfilePage = () => {
                     {isEditing ? (
                       <input
                         type="text"
-                        name="fullName"
-                        value={profileData.fullName}
+                        name="full_name"
+                        value={profileData.full_name || ""}
                         onChange={handleInputChange}
                         className="w-full p-3 bg-gray-700/50 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
                       />
                     ) : (
-                      <div className="p-3 bg-gray-700/30 rounded-lg text-white">{profileData.fullName}</div>
+                      <div className="p-3 bg-gray-700/30 rounded-lg text-white">
+                        {profileData.full_name || "Not set"}
+                      </div>
                     )}
                   </div>
 
@@ -177,46 +270,91 @@ const ProfilePage = () => {
                       <input
                         type="email"
                         name="email"
-                        value={profileData.email}
+                        value={profileData.email || ""}
                         onChange={handleInputChange}
                         className="w-full p-3 bg-gray-700/50 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
                       />
                     ) : (
                       <div className="p-3 bg-gray-700/30 rounded-lg text-white flex items-center">
                         <Mail className="h-4 w-4 mr-2 text-gray-400" />
-                        {profileData.email}
+                        {profileData.email || "Not set"}
                       </div>
                     )}
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">Target Band Score</label>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Phone Number</label>
                     {isEditing ? (
-                      <select
-                        name="targetBand"
-                        value={profileData.targetBand}
+                      <input
+                        type="tel"
+                        name="phone_number"
+                        value={profileData.phone_number || ""}
                         onChange={handleInputChange}
                         className="w-full p-3 bg-gray-700/50 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
-                      >
-                        <option value="6.0">6.0</option>
-                        <option value="6.5">6.5</option>
-                        <option value="7.0">7.0</option>
-                        <option value="7.5">7.5</option>
-                        <option value="8.0">8.0</option>
-                        <option value="8.5">8.5</option>
-                        <option value="9.0">9.0</option>
-                      </select>
+                      />
                     ) : (
                       <div className="p-3 bg-gray-700/30 rounded-lg text-white flex items-center">
-                        <Target className="h-4 w-4 mr-2 text-green-400" />
-                        {profileData.targetBand}
+                        <Phone className="h-4 w-4 mr-2 text-gray-400" />
+                        {profileData.phone_number || "Not set"}
                       </div>
                     )}
                   </div>
 
-                  <div className="flex items-center text-sm text-gray-400">
-                    <Calendar className="h-4 w-4 mr-2" />
-                    Joined {new Date(profileData.joinDate).toLocaleDateString()}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Gender</label>
+                    {isEditing ? (
+                      <select
+                        name="gender"
+                        value={profileData.gender || ""}
+                        onChange={handleInputChange}
+                        className="w-full p-3 bg-gray-700/50 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
+                      >
+                        <option value="">Select Gender</option>
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    ) : (
+                      <div className="p-3 bg-gray-700/30 rounded-lg text-white">{profileData.gender || "Not set"}</div>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Date of Birth</label>
+                    {isEditing ? (
+                      <input
+                        type="date"
+                        name="date_of_birth"
+                        value={profileData.date_of_birth || ""}
+                        onChange={handleInputChange}
+                        className="w-full p-3 bg-gray-700/50 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
+                      />
+                    ) : (
+                      <div className="p-3 bg-gray-700/30 rounded-lg text-white flex items-center">
+                        <Calendar className="h-4 w-4 mr-2 text-gray-400" />
+                        {profileData.date_of_birth
+                          ? new Date(profileData.date_of_birth).toLocaleDateString()
+                          : "Not set"}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Country of Residence</label>
+                    {isEditing ? (
+                      <input
+                        type="text"
+                        name="country_of_residence"
+                        value={profileData.country_of_residence || ""}
+                        onChange={handleInputChange}
+                        className="w-full p-3 bg-gray-700/50 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
+                      />
+                    ) : (
+                      <div className="p-3 bg-gray-700/30 rounded-lg text-white flex items-center">
+                        <MapPin className="h-4 w-4 mr-2 text-gray-400" />
+                        {profileData.country_of_residence || "Not set"}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -239,28 +377,73 @@ const ProfilePage = () => {
                 )}
               </div>
 
-              {/* Quick Stats */}
-              <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700 animate-fade-in-up delay-400">
+              {/* IELTS Goals */}
+              <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700 animate-fade-in-up delay-300">
                 <h2 className="text-xl font-semibold text-white mb-4 flex items-center">
-                  <BarChart3 className="h-5 w-5 mr-2 text-blue-400" />
-                  Quick Stats
+                  <Target className="h-5 w-5 mr-2 text-green-400" />
+                  IELTS Goals
                 </h2>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-gray-700/30 rounded-lg p-3 text-center">
-                    <div className="text-2xl font-bold text-blue-400 mb-1">{profileData.studyStreak}</div>
-                    <div className="text-gray-400 text-xs">Day Streak</div>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Target Band Score</label>
+                    {isEditing ? (
+                      <select
+                        name="target_ielts_band_score"
+                        value={profileData.target_ielts_band_score || ""}
+                        onChange={handleInputChange}
+                        className="w-full p-3 bg-gray-700/50 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
+                      >
+                        <option value="">Select Target</option>
+                        <option value="6.0">6.0</option>
+                        <option value="6.5">6.5</option>
+                        <option value="7.0">7.0</option>
+                        <option value="7.5">7.5</option>
+                        <option value="8.0">8.0</option>
+                        <option value="8.5">8.5</option>
+                        <option value="9.0">9.0</option>
+                      </select>
+                    ) : (
+                      <div className="p-3 bg-gray-700/30 rounded-lg text-white">
+                        {profileData.target_ielts_band_score || "Not set"}
+                      </div>
+                    )}
                   </div>
-                  <div className="bg-gray-700/30 rounded-lg p-3 text-center">
-                    <div className="text-2xl font-bold text-green-400 mb-1">{profileData.totalStudyHours}</div>
-                    <div className="text-gray-400 text-xs">Study Hours</div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Exam Date</label>
+                    {isEditing ? (
+                      <input
+                        type="date"
+                        name="exam_date"
+                        value={profileData.exam_date || ""}
+                        onChange={handleInputChange}
+                        className="w-full p-3 bg-gray-700/50 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
+                      />
+                    ) : (
+                      <div className="p-3 bg-gray-700/30 rounded-lg text-white">
+                        {profileData.exam_date ? new Date(profileData.exam_date).toLocaleDateString() : "Not set"}
+                      </div>
+                    )}
                   </div>
-                  <div className="bg-gray-700/30 rounded-lg p-3 text-center">
-                    <div className="text-2xl font-bold text-purple-400 mb-1">{profileData.testsCompleted}</div>
-                    <div className="text-gray-400 text-xs">Tests Done</div>
-                  </div>
-                  <div className="bg-gray-700/30 rounded-lg p-3 text-center">
-                    <div className="text-2xl font-bold text-orange-400 mb-1">{profileData.currentBand}</div>
-                    <div className="text-gray-400 text-xs">Current Band</div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Exam Type</label>
+                    {isEditing ? (
+                      <select
+                        name="preferred_exam_type"
+                        value={profileData.preferred_exam_type || ""}
+                        onChange={handleInputChange}
+                        className="w-full p-3 bg-gray-700/50 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
+                      >
+                        <option value="">Select Type</option>
+                        <option value="Academic">Academic</option>
+                        <option value="General Training">General Training</option>
+                      </select>
+                    ) : (
+                      <div className="p-3 bg-gray-700/30 rounded-lg text-white">
+                        {profileData.preferred_exam_type || "Not set"}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -284,20 +467,127 @@ const ProfilePage = () => {
               </div>
             </div>
 
-            {/* Progress & Achievements */}
+            {/* Study Preferences & Progress */}
             <div className="lg:col-span-2 space-y-6">
-              {/* Progress Chart */}
+              {/* Study Preferences */}
               <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700 animate-fade-in-up delay-300">
                 <h2 className="text-xl font-semibold text-white mb-6 flex items-center">
-                  <TrendingUp className="h-5 w-5 mr-2 text-green-400" />
-                  Progress Over Time
+                  <GraduationCap className="h-5 w-5 mr-2 text-blue-400" />
+                  Study Preferences
                 </h2>
-                <div className="h-64 bg-gray-700/30 rounded-lg flex items-center justify-center">
-                  <div className="text-center">
-                    <BarChart3 className="h-12 w-12 text-gray-500 mx-auto mb-2" />
-                    <p className="text-gray-400">Progress chart would be displayed here</p>
-                    <p className="text-gray-500 text-sm">Integration with Chart.js or Recharts</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Education Level</label>
+                    {isEditing ? (
+                      <select
+                        name="current_education_level"
+                        value={profileData.current_education_level || ""}
+                        onChange={handleInputChange}
+                        className="w-full p-3 bg-gray-700/50 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
+                      >
+                        <option value="">Select Level</option>
+                        <option value="High School">High School</option>
+                        <option value="Undergraduate">Undergraduate</option>
+                        <option value="Graduate">Graduate</option>
+                        <option value="Working Professional">Working Professional</option>
+                      </select>
+                    ) : (
+                      <div className="p-3 bg-gray-700/30 rounded-lg text-white">
+                        {profileData.current_education_level || "Not set"}
+                      </div>
+                    )}
                   </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Study Plan</label>
+                    {isEditing ? (
+                      <select
+                        name="study_plan_preference"
+                        value={profileData.study_plan_preference || ""}
+                        onChange={handleInputChange}
+                        className="w-full p-3 bg-gray-700/50 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
+                      >
+                        <option value="">Select Plan</option>
+                        <option value="Self-paced">Self-paced</option>
+                        <option value="AI-planned schedule">AI-planned schedule</option>
+                      </select>
+                    ) : (
+                      <div className="p-3 bg-gray-700/30 rounded-lg text-white">
+                        {profileData.study_plan_preference || "Not set"}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Daily Study Hours</label>
+                    {isEditing ? (
+                      <select
+                        name="daily_study_hours"
+                        value={profileData.daily_study_hours || ""}
+                        onChange={handleInputChange}
+                        className="w-full p-3 bg-gray-700/50 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
+                      >
+                        <option value="">Select Hours</option>
+                        {[1, 2, 3, 4, 5, 6, 7, 8].map((hour) => (
+                          <option key={hour} value={hour}>
+                            {hour} hour{hour > 1 ? "s" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="p-3 bg-gray-700/30 rounded-lg text-white flex items-center">
+                        <Clock className="h-4 w-4 mr-2 text-gray-400" />
+                        {profileData.daily_study_hours
+                          ? `${profileData.daily_study_hours} hour${profileData.daily_study_hours > 1 ? "s" : ""}`
+                          : "Not set"}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Study Abroad Country</label>
+                    {isEditing ? (
+                      <input
+                        type="text"
+                        name="preferred_study_abroad_country"
+                        value={profileData.preferred_study_abroad_country || ""}
+                        onChange={handleInputChange}
+                        className="w-full p-3 bg-gray-700/50 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
+                      />
+                    ) : (
+                      <div className="p-3 bg-gray-700/30 rounded-lg text-white flex items-center">
+                        <Globe className="h-4 w-4 mr-2 text-gray-400" />
+                        {profileData.preferred_study_abroad_country || "Not set"}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Skill Focus Areas */}
+                <div className="mt-6">
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Skill Focus Areas</label>
+                  {isEditing ? (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      {skillFocusOptions.map((skill) => (
+                        <label key={skill} className="flex items-center space-x-2 text-gray-300">
+                          <input
+                            type="checkbox"
+                            value={skill}
+                            checked={(profileData.skill_focus_areas || []).includes(skill)}
+                            onChange={handleInputChange}
+                            className="rounded border-gray-600 text-blue-600 focus:ring-blue-500 focus:ring-offset-gray-800"
+                          />
+                          <span className="text-sm">{skill}</span>
+                        </label>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-gray-700/30 rounded-lg text-white">
+                      {profileData.skill_focus_areas && profileData.skill_focus_areas.length > 0
+                        ? profileData.skill_focus_areas.join(", ")
+                        : "Not set"}
+                    </div>
+                  )}
                 </div>
               </div>
 

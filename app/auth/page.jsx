@@ -1,43 +1,68 @@
 "use client"
 
-import { useState } from "react"
-import { Mail, Lock, Eye, EyeOff, User, ArrowRight, Sparkles, CheckCircle } from "lucide-react"
+import { useState, useEffect } from "react"
+import { Sparkles } from "lucide-react"
+import { createBrowserClient } from "@supabase/ssr"
+import { useRouter } from "next/navigation"
 import Navbar from "../../components/Navbar"
 import Footer from "../../components/Footer"
 
 const AuthPage = () => {
-  const [isLogin, setIsLogin] = useState(true)
-  const [showPassword, setShowPassword] = useState(false)
-  const [formData, setFormData] = useState({
-    email: "",
-    password: "",
-    confirmPassword: "",
-    fullName: "",
-  })
   const [isLoading, setIsLoading] = useState(false)
+  const router = useRouter()
 
-  const handleInputChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    })
-  }
+  const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
+  useEffect(() => {
+    // Check if user is already logged in
+    const checkUser = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      if (session) {
+        // Check if user has completed student info
+        const { data: studentInfo } = await supabase
+          .from("studentinfo")
+          .select("id")
+          .eq("user_id", session.user.id)
+          .single()
+
+        if (studentInfo) {
+          router.push("/dashboard")
+        } else {
+          router.push("/studentinfo")
+        }
+      }
+    }
+    checkUser()
+  }, [supabase, router])
+
+  const handleGoogleAuth = async () => {
     setIsLoading(true)
 
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false)
-      // Redirect to dashboard
-      window.location.href = "/dashboard"
-    }, 2000)
-  }
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+          queryParams: {
+            access_type: "offline",
+            prompt: "consent",
+          },
+        },
+      })
 
-  const handleGoogleAuth = () => {
-    // Google OAuth implementation
-    console.log("Google OAuth")
+      if (error) {
+        console.error("Auth error:", error)
+        alert("Authentication failed. Please try again.")
+        setIsLoading(false)
+      }
+      // If successful, user will be redirected automatically
+    } catch (error) {
+      console.error("Unexpected error:", error)
+      alert("An unexpected error occurred. Please try again.")
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -59,178 +84,38 @@ const AuthPage = () => {
                 <Sparkles className="h-8 w-8 text-white" />
               </div>
             </div>
-            <h2 className="text-3xl font-bold text-white mb-2">{isLogin ? "Welcome Back!" : "Join IELTS AI Coach"}</h2>
+            <h2 className="text-3xl font-bold text-white mb-2">Join IELTS AI Coach</h2>
             <p className="text-gray-400">
-              {isLogin ? "Sign in to continue your IELTS journey" : "Start your AI-powered IELTS preparation today"}
+              Sign in or create your account with Google to start your AI-powered IELTS preparation journey
             </p>
           </div>
 
           <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl shadow-2xl p-8 border border-gray-700 animate-fade-in-up delay-200">
-            <form className="space-y-6" onSubmit={handleSubmit}>
-              {!isLogin && (
-                <div className="animate-slide-in-left">
-                  <label htmlFor="fullName" className="block text-sm font-medium text-gray-300 mb-2">
-                    Full Name
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <User className="h-5 w-5 text-gray-400" />
-                    </div>
-                    <input
-                      id="fullName"
-                      name="fullName"
-                      type="text"
-                      required={!isLogin}
-                      className="block w-full pl-10 pr-3 py-3 border border-gray-600 rounded-lg bg-gray-700/50 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
-                      placeholder="Enter your full name"
-                      value={formData.fullName}
-                      onChange={handleInputChange}
-                    />
-                  </div>
-                </div>
-              )}
-
-              <div className="animate-slide-in-left delay-100">
-                <label htmlFor="email" className="block text-sm font-medium text-gray-300 mb-2">
-                  Email Address
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Mail className="h-5 w-5 text-gray-400" />
-                  </div>
-                  <input
-                    id="email"
-                    name="email"
-                    type="email"
-                    required
-                    className="block w-full pl-10 pr-3 py-3 border border-gray-600 rounded-lg bg-gray-700/50 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
-                    placeholder="Enter your email"
-                    value={formData.email}
-                    onChange={handleInputChange}
-                  />
-                </div>
+            <div className="space-y-6">
+              <div className="text-center">
+                <h3 className="text-xl font-semibold text-white mb-2">Get Started in Seconds</h3>
+                <p className="text-gray-400 text-sm mb-6">
+                  New user? We'll create your account automatically. Returning user? Welcome back!
+                </p>
               </div>
 
-              <div className="animate-slide-in-left delay-200">
-                <label htmlFor="password" className="block text-sm font-medium text-gray-300 mb-2">
-                  Password
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <Lock className="h-5 w-5 text-gray-400" />
-                  </div>
-                  <input
-                    id="password"
-                    name="password"
-                    type={showPassword ? "text" : "password"}
-                    required
-                    className="block w-full pl-10 pr-10 py-3 border border-gray-600 rounded-lg bg-gray-700/50 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
-                    placeholder="Enter your password"
-                    value={formData.password}
-                    onChange={handleInputChange}
-                  />
-                  <button
-                    type="button"
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center"
-                    onClick={() => setShowPassword(!showPassword)}
-                  >
-                    {showPassword ? (
-                      <EyeOff className="h-5 w-5 text-gray-400 hover:text-blue-400 transition-colors duration-300" />
-                    ) : (
-                      <Eye className="h-5 w-5 text-gray-400 hover:text-blue-400 transition-colors duration-300" />
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              {!isLogin && (
-                <div className="animate-slide-in-left delay-300">
-                  <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-300 mb-2">
-                    Confirm Password
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <Lock className="h-5 w-5 text-gray-400" />
-                    </div>
-                    <input
-                      id="confirmPassword"
-                      name="confirmPassword"
-                      type="password"
-                      required={!isLogin}
-                      className="block w-full pl-10 pr-3 py-3 border border-gray-600 rounded-lg bg-gray-700/50 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300"
-                      placeholder="Confirm your password"
-                      value={formData.confirmPassword}
-                      onChange={handleInputChange}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {isLogin && (
-                <div className="flex items-center justify-between animate-fade-in delay-300">
+              <button
+                type="button"
+                onClick={handleGoogleAuth}
+                disabled={isLoading}
+                className="w-full inline-flex justify-center items-center py-4 px-6 border-2 border-blue-500 rounded-lg shadow-lg bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-medium text-lg transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+              >
+                {isLoading ? (
                   <div className="flex items-center">
-                    <input
-                      id="remember-me"
-                      name="remember-me"
-                      type="checkbox"
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-600 rounded bg-gray-700"
-                    />
-                    <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-300">
-                      Remember me
-                    </label>
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white mr-3"></div>
+                    Connecting your account...
                   </div>
-                  <div className="text-sm">
-                    <a href="#" className="text-blue-400 hover:text-blue-300 transition-colors duration-300">
-                      Forgot password?
-                    </a>
-                  </div>
-                </div>
-              )}
-
-              <div className="animate-fade-in-up delay-400">
-                <button
-                  type="submit"
-                  disabled={isLoading}
-                  className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-lg text-white bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isLoading ? (
-                    <div className="flex items-center">
-                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                      Processing...
-                    </div>
-                  ) : (
-                    <div className="flex items-center">
-                      {isLogin ? "Sign In" : "Create Account"}
-                      <ArrowRight className="h-5 w-5 ml-2 group-hover:translate-x-1 transition-transform duration-300" />
-                    </div>
-                  )}
-                </button>
-              </div>
-
-              <div className="animate-fade-in delay-500">
-                <div className="relative">
-                  <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-gray-600" />
-                  </div>
-                  <div className="relative flex justify-center text-sm">
-                    <span className="px-2 bg-gray-800 text-gray-400">Or continue with</span>
-                  </div>
-                </div>
-
-                <div className="mt-6">
-                  <button
-                    type="button"
-                    onClick={handleGoogleAuth}
-                    className="w-full inline-flex justify-center py-3 px-4 border border-gray-600 rounded-lg shadow-sm bg-gray-700/50 text-sm font-medium text-gray-300 hover:bg-gray-600/50 hover:text-white transition-all duration-300 transform hover:scale-105"
-                  >
-                    <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
+                ) : (
+                  <>
+                    <svg className="w-6 h-6 mr-3" viewBox="0 0 24 24">
                       <path
                         fill="currentColor"
                         d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                      />
-                      <path
-                        fill="currentColor"
-                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
                       />
                       <path
                         fill="currentColor"
@@ -242,39 +127,36 @@ const AuthPage = () => {
                       />
                     </svg>
                     Continue with Google
-                  </button>
-                </div>
-              </div>
-            </form>
+                  </>
+                )}
+              </button>
 
-            <div className="mt-6 text-center animate-fade-in delay-600">
-              <p className="text-gray-400">
-                {isLogin ? "Don't have an account?" : "Already have an account?"}
-                <button
-                  type="button"
-                  onClick={() => setIsLogin(!isLogin)}
-                  className="ml-2 text-blue-400 hover:text-blue-300 font-medium transition-colors duration-300"
-                >
-                  {isLogin ? "Sign up" : "Sign in"}
-                </button>
-              </p>
+              <div className="text-center text-sm text-gray-400 mt-4">
+                <p>
+                  By continuing, you agree to our{" "}
+                  <a href="#" className="text-blue-400 hover:text-blue-300 transition-colors duration-300">
+                    Terms of Service
+                  </a>{" "}
+                  and{" "}
+                  <a href="#" className="text-blue-400 hover:text-blue-300 transition-colors duration-300">
+                    Privacy Policy
+                  </a>
+                </p>
+              </div>
             </div>
           </div>
 
-          {!isLogin && (
-            <div className="bg-gray-800/30 backdrop-blur-sm rounded-lg p-4 border border-gray-700/50 animate-fade-in-up delay-700">
-              <div className="flex items-start space-x-3">
-                <CheckCircle className="h-5 w-5 text-green-400 mt-0.5 flex-shrink-0" />
-                <div className="text-sm text-gray-300">
-                  <p className="font-medium text-white mb-1">Welcome to IELTS AI Coach!</p>
-                  <p>
-                    Get personalized feedback, track your progress, and achieve your target band score with our
-                    AI-powered platform.
-                  </p>
-                </div>
+          <div className="bg-gray-800/30 backdrop-blur-sm rounded-lg p-4 border border-gray-700/50 animate-fade-in-up delay-700">
+            <div className="text-center">
+              <div className="text-sm text-gray-300">
+                <p className="font-medium text-white mb-1">🚀 Ready to boost your IELTS score?</p>
+                <p>
+                  Join thousands of students who have improved their IELTS scores with personalized AI feedback and
+                  progress tracking.
+                </p>
               </div>
             </div>
-          )}
+          </div>
         </div>
       </div>
 
