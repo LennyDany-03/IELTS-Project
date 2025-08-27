@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect } from "react"
 import * as SpeechSDK from "microsoft-cognitiveservices-speech-sdk"
 import ReactMarkdown from "react-markdown"
+import { createBrowserClient } from "@supabase/ssr"
+import { useRouter } from "next/navigation"
 import {
   Mic,
   Play,
@@ -11,7 +13,6 @@ import {
   RotateCcw,
   Save,
   Volume2,
-  Clock,
   Award,
   AlertCircle,
   ArrowLeft,
@@ -28,9 +29,12 @@ const SpeakingPage = () => {
   const [transcript, setTranscript] = useState("")
   const [feedback, setFeedback] = useState("")
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState("")
   const [audioBlob, setAudioBlob] = useState(null)
   const [backendStatus, setBackendStatus] = useState("checking")
+  const [user, setUser] = useState(null)
+  const [isLoading, setIsLoading] = useState(true)
   const [currentTopic, setCurrentTopic] = useState({
     title: "Describe a memorable journey you have taken",
     description:
@@ -42,12 +46,15 @@ const SpeakingPage = () => {
   const audioRef = useRef(null)
   const timerRef = useRef(null)
   const mediaRecorderRef = useRef(null)
+  const router = useRouter()
 
-  // Azure Speech SDK configuration
+  const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
+
   const speechKey = process.env.NEXT_PUBLIC_AZURE_SPEECH_KEY
   const speechRegion = process.env.NEXT_PUBLIC_AZURE_SPEECH_REGION
 
   useEffect(() => {
+    checkAuth()
     checkBackendStatus()
     return () => {
       if (timerRef.current) {
@@ -59,9 +66,38 @@ const SpeakingPage = () => {
     }
   }, [])
 
+  const checkAuth = async () => {
+    try {
+      const {
+        data: { session },
+        error,
+      } = await supabase.auth.getSession()
+
+      if (error) {
+        console.error("[v0] Auth error:", error)
+        router.push("/auth")
+        return
+      }
+
+      if (!session) {
+        console.log("[v0] No session found, redirecting to auth")
+        router.push("/auth")
+        return
+      }
+
+      setUser(session.user)
+      console.log("[v0] User authenticated:", session.user.email)
+    } catch (error) {
+      console.error("[v0] Auth check failed:", error)
+      router.push("/auth")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const checkBackendStatus = async () => {
     try {
-      const response = await fetch("https://ielts-backend-t6sq.onrender.com/api/speech/evaluate-transcript", {
+      const response = await fetch("http://localhost:8000/api/speech/evaluate-transcript", {
         method: "GET",
         headers: { "Content-Type": "application/json" },
       })
@@ -85,7 +121,6 @@ const SpeakingPage = () => {
     }
 
     try {
-      // Start audio recording for playback
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       const mediaRecorder = new MediaRecorder(stream)
       mediaRecorderRef.current = mediaRecorder
@@ -103,7 +138,6 @@ const SpeakingPage = () => {
 
       mediaRecorder.start()
 
-      // Configure Azure Speech SDK
       const speechConfig = SpeechSDK.SpeechConfig.fromSubscription(speechKey, speechRegion)
       speechConfig.speechRecognitionLanguage = "en-US"
       speechConfig.enableDictation()
@@ -114,10 +148,7 @@ const SpeakingPage = () => {
 
       let fullTranscript = ""
 
-      // Handle continuous recognition
-      recognizer.recognizing = (s, e) => {
-        // Real-time partial results (optional)
-      }
+      recognizer.recognizing = (s, e) => {}
 
       recognizer.recognized = (s, e) => {
         if (e.result.reason === SpeechSDK.ResultReason.RecognizedSpeech) {
@@ -139,10 +170,8 @@ const SpeakingPage = () => {
         recognizer.stopContinuousRecognitionAsync()
       }
 
-      // Start continuous recognition
       recognizer.startContinuousRecognitionAsync()
 
-      // Start timer
       timerRef.current = setInterval(() => {
         setRecordingTime((prev) => {
           if (prev >= currentTopic.timeLimit) {
@@ -183,7 +212,6 @@ const SpeakingPage = () => {
       )
     }
 
-    // Auto-analyze if we have transcript
     if (transcript.trim()) {
       setTimeout(() => analyzeTranscript(), 1000)
     }
@@ -228,7 +256,7 @@ const SpeakingPage = () => {
     setError("")
 
     try {
-      const response = await fetch("https://ielts-backend-t6sq.onrender.com/api/speech/evaluate-transcript", {
+      const response = await fetch("http://localhost:8000/api/speech/evaluate-transcript", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ transcript: transcript.trim() }),
@@ -253,12 +281,210 @@ const SpeakingPage = () => {
       return
     }
 
+    setIsSaving(true)
+    setError("")
+
     try {
-      // Here you would typically save to your database
-      console.log("Saving result:", { transcript, feedback, recordingTime })
-      alert("Result saved successfully!")
+      console.log("[v0] Starting save process...")
+
+      if (!user) {
+        throw new Error("User not authenticated. Please sign in again.")
+      }
+
+      console.log("[v0] User authenticated, getting student info...")
+
+      const { data: studentInfo, error: studentError } = await supabase
+        .from("studentinfo")
+        .select("id")
+        .eq("user_id", user.id)
+        .single()
+
+      console.log("[v0] Student info:", studentInfo)
+      console.log("[v0] Student error:", studentError)
+
+      if (studentError) {
+        if (studentError.code === "PGRST116") {
+          throw new Error("Student profile not found. Please complete your profile in the Student Info page first.")
+        }
+        throw new Error(`Database error: ${studentError.message}`)
+      }
+
+      if (!studentInfo) {
+        throw new Error("Student information not found. Please complete your profile first.")
+      }
+
+      console.log("[v0] Extracting scores from feedback...")
+      console.log("[v0] Full feedback text:", feedback)
+
+      let bandScore = null
+
+      const bandScorePatterns = [
+        /\*\*Band\s*Score\*\*[:\s]*(\d+(?:\.\d+)?)/gi, // Matches **Band Score**: 4
+        /Band\s*Score[:\s]+(\d+(?:\.\d+)?)/gi, // Matches Band Score: 4 (with required colon/space)
+        /Overall\s*Band[:\s]+(\d+(?:\.\d+)?)/gi, // Matches Overall Band: 4
+        /(?:^|\s)Band[:\s]+(\d+(?:\.\d+)?)/gi, // Matches Band: 4 at start of line or after space
+      ]
+
+      // Try each pattern
+      for (let i = 0; i < bandScorePatterns.length; i++) {
+        const pattern = bandScorePatterns[i]
+        pattern.lastIndex = 0 // Reset regex state
+        const match = pattern.exec(feedback)
+        console.log(`[v0] Pattern ${i + 1} (${pattern}):`, match)
+        if (match && match[1]) {
+          const score = Number.parseFloat(match[1])
+          // Validate it's a reasonable IELTS band score
+          if (score >= 1 && score <= 9) {
+            bandScore = score
+            console.log("[v0] Band score found with pattern:", pattern, "Full match:", match[0], "Score:", bandScore)
+            break
+          }
+        }
+      }
+
+      if (!bandScore) {
+        console.log("[v0] No pattern matched, trying line-by-line search...")
+        const lines = feedback.split(/[\n\r]+/)
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim()
+          console.log(`[v0] Checking line ${i + 1}:`, line)
+
+          if (line.toLowerCase().includes("band") && line.toLowerCase().includes("score")) {
+            console.log("[v0] Found band score line:", line)
+            // Look for pattern like "Band Score: 4" or "**Band Score**: 4"
+            const lineMatch = line.match(/band\s*score[:\s]*(\d+(?:\.\d+)?)/i)
+            if (lineMatch && lineMatch[1]) {
+              const score = Number.parseFloat(lineMatch[1])
+              if (score >= 1 && score <= 9) {
+                bandScore = score
+                console.log("[v0] Band score extracted from line:", line, "Score:", bandScore)
+                break
+              }
+            }
+          }
+        }
+      }
+
+      if (!bandScore) {
+        console.log("[v0] Still no band score, trying final fallback...")
+        const scoreMatches = feedback.match(/score[:\s]*(\d+(?:\.\d+)?)/gi)
+        console.log("[v0] Score matches found:", scoreMatches)
+        if (scoreMatches && scoreMatches.length > 0) {
+          for (const match of scoreMatches) {
+            const numberMatch = match.match(/(\d+(?:\.\d+)?)/g)
+            if (numberMatch) {
+              const score = Number.parseFloat(numberMatch[0])
+              if (score >= 1 && score <= 9) {
+                bandScore = score
+                console.log("[v0] Using fallback band score:", bandScore)
+                break
+              }
+            }
+          }
+        }
+      }
+
+      const fluencyPatterns = [/Fluency\s*&?\s*Coherence[:\s]*(\d+(?:\.\d+)?)/i, /Fluency[:\s]*(\d+(?:\.\d+)?)/i]
+
+      const lexicalPatterns = [
+        /Lexical\s*Resource[:\s]*(\d+(?:\.\d+)?)/i,
+        /Vocabulary[:\s]*(\d+(?:\.\d+)?)/i,
+        /Lexical[:\s]*(\d+(?:\.\d+)?)/i,
+      ]
+
+      const grammarPatterns = [/Grammar[:\s]*(\d+(?:\.\d+)?)/i, /Grammatical[:\s]*Range[:\s]*(\d+(?:\.\d+)?)/i]
+
+      const pronunciationPatterns = [/Pronunciation[:\s]*(\d+(?:\.\d+)?)/i]
+
+      let fluencyScore = null,
+        lexicalScore = null,
+        grammarScore = null,
+        pronunciationScore = null
+
+      // Extract fluency score
+      for (const pattern of fluencyPatterns) {
+        const match = feedback.match(pattern)
+        if (match) {
+          fluencyScore = Number.parseFloat(match[1])
+          break
+        }
+      }
+
+      // Extract lexical score
+      for (const pattern of lexicalPatterns) {
+        const match = feedback.match(pattern)
+        if (match) {
+          lexicalScore = Number.parseFloat(match[1])
+          break
+        }
+      }
+
+      // Extract grammar score
+      for (const pattern of grammarPatterns) {
+        const match = feedback.match(pattern)
+        if (match) {
+          grammarScore = Number.parseFloat(match[1])
+          break
+        }
+      }
+
+      // Extract pronunciation score
+      for (const pattern of pronunciationPatterns) {
+        const match = feedback.match(pattern)
+        if (match) {
+          pronunciationScore = Number.parseFloat(match[1])
+          break
+        }
+      }
+
+      console.log("[v0] Final extracted scores:", {
+        bandScore,
+        fluencyScore,
+        lexicalScore,
+        grammarScore,
+        pronunciationScore,
+      })
+
+      if (!bandScore) {
+        console.warn("[v0] WARNING: Band score could not be extracted from feedback")
+        console.log("[v0] Feedback preview:", feedback.substring(0, 200) + "...")
+      }
+
+      const { data, error: insertError } = await supabase
+        .from("speaking_results")
+        .insert({
+          student_id: studentInfo.id,
+          topic_title: currentTopic.title,
+          topic_description: currentTopic.description,
+          transcript: transcript.trim(),
+          ai_feedback: feedback,
+          band_score: bandScore,
+          fluency_score: fluencyScore,
+          lexical_score: lexicalScore,
+          grammar_score: grammarScore,
+          pronunciation_score: pronunciationScore,
+          recording_duration: recordingTime,
+        })
+        .select()
+
+      console.log("[v0] Insert result:", data)
+      console.log("[v0] Insert error:", insertError)
+
+      if (insertError) {
+        throw new Error(`Database error: ${insertError.message}`)
+      }
+
+      setError("")
+      alert("Speaking practice result saved successfully!")
+      console.log("[v0] Save completed successfully")
+
+      // Optional: Reset the form for next practice
+      // resetRecording()
     } catch (error) {
+      console.error("[v0] Save error:", error)
       setError(`Save failed: ${error.message}`)
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -290,19 +516,32 @@ const SpeakingPage = () => {
     }
   }
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-400 mx-auto mb-4"></div>
+          <p className="text-gray-400">Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return null
+  }
+
   return (
     <div className="min-h-screen bg-gray-900">
       <Navbar />
 
       <div className="relative min-h-screen py-8 overflow-hidden">
-        {/* Animated Background */}
         <div className="absolute inset-0 overflow-hidden">
           <div className="absolute top-20 right-20 w-64 h-64 bg-blue-500/5 rounded-full animate-float"></div>
           <div className="absolute bottom-20 left-20 w-64 h-64 bg-purple-500/5 rounded-full animate-float delay-1000"></div>
         </div>
 
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Header */}
           <div className="mb-8 animate-fade-in-up">
             <div className="flex items-center justify-between mb-4">
               <button
@@ -313,7 +552,6 @@ const SpeakingPage = () => {
                 Back to Dashboard
               </button>
 
-              {/* Backend Status */}
               <div className="flex items-center space-x-2">
                 <div className={`flex items-center ${getStatusColor(backendStatus)}`}>
                   <div
@@ -340,7 +578,6 @@ const SpeakingPage = () => {
             <p className="text-gray-400">Practice speaking with Azure Speech Recognition and get AI-powered feedback</p>
           </div>
 
-          {/* Azure Configuration Check */}
           {(!speechKey || !speechRegion) && (
             <div className="bg-red-900/20 border border-red-500/50 rounded-2xl p-4 mb-8 animate-fade-in-up">
               <div className="flex items-center">
@@ -353,29 +590,11 @@ const SpeakingPage = () => {
             </div>
           )}
 
-          {/* Topic Card */}
-          <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-6 border border-gray-700 mb-8 card-hover hover-glow animate-fade-in-up delay-200">
-            <h2 className="text-xl font-semibold text-white mb-3 flex items-center">
-              <Volume2 className="h-5 w-5 mr-2 text-blue-400 icon-fade" />
-              Speaking Topic
-            </h2>
-            <div className="bg-gray-700/30 rounded-xl p-4">
-              <h3 className="text-lg font-medium text-blue-400 mb-2">{currentTopic.title}</h3>
-              <p className="text-gray-300 mb-3">{currentTopic.description}</p>
-              <div className="flex items-center text-sm text-gray-400">
-                <Clock className="h-4 w-4 mr-1 icon-fade" />
-                Time limit: {formatTime(currentTopic.timeLimit)}
-              </div>
-            </div>
-          </div>
-
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Recording Section */}
             <div className="animate-fade-in-up delay-400">
               <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-6 border border-gray-700 card-hover hover-glow">
                 <h2 className="text-xl font-semibold text-white mb-6">Recording & Recognition</h2>
 
-                {/* Timer */}
                 <div className="text-center mb-6">
                   <div className="text-4xl font-bold text-blue-400 mb-2 animate-fade-glow">
                     {formatTime(recordingTime)}
@@ -385,7 +604,6 @@ const SpeakingPage = () => {
                   </div>
                 </div>
 
-                {/* Recording Controls */}
                 <div className="flex justify-center space-x-4 mb-6">
                   {!isRecording && !audioBlob && (
                     <button
@@ -424,7 +642,6 @@ const SpeakingPage = () => {
                   )}
                 </div>
 
-                {/* Real-time Transcript */}
                 {transcript && (
                   <div className="bg-gray-700/30 rounded-xl p-4 mb-4">
                     <h3 className="text-white font-medium mb-2 flex items-center">
@@ -435,8 +652,7 @@ const SpeakingPage = () => {
                   </div>
                 )}
 
-                {/* Manual Analyze Button */}
-                {transcript && !isAnalyzing && !feedback && (
+                {!feedback && !isAnalyzing && transcript && (
                   <div className="text-center">
                     <button
                       onClick={analyzeTranscript}
@@ -453,7 +669,6 @@ const SpeakingPage = () => {
               </div>
             </div>
 
-            {/* Analysis Results Section */}
             <div className="animate-fade-in-up delay-600">
               <div className="bg-gray-800/50 backdrop-blur-sm rounded-2xl p-6 border border-gray-700 card-hover hover-glow">
                 <h2 className="text-xl font-semibold text-white mb-6">AI Analysis & Feedback</h2>
@@ -513,20 +728,28 @@ const SpeakingPage = () => {
                       </div>
                     </div>
 
-                    {/* Save Button */}
                     <div className="text-center">
                       <button
                         onClick={saveResult}
-                        className="group bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white px-6 py-3 rounded-xl transition-smooth hover-lift flex items-center mx-auto btn-animate"
+                        disabled={isSaving}
+                        className="group bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white px-6 py-3 rounded-xl transition-smooth hover-lift flex items-center mx-auto btn-animate disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        <Save className="h-5 w-5 mr-2 group-hover:icon-fade" />
-                        Save Result
+                        {isSaving ? (
+                          <>
+                            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                            Saving...
+                          </>
+                        ) : (
+                          <>
+                            <Save className="h-5 w-5 mr-2 group-hover:icon-fade" />
+                            Save Result
+                          </>
+                        )}
                       </button>
                     </div>
                   </div>
                 )}
 
-                {/* Error Display */}
                 {error && (
                   <div className="bg-red-900/20 border border-red-500/50 rounded-xl p-4 animate-fade-in">
                     <div className="flex items-start">
@@ -542,7 +765,6 @@ const SpeakingPage = () => {
             </div>
           </div>
 
-          {/* Troubleshooting Section */}
           {backendStatus === "disconnected" && (
             <div className="mt-8 bg-yellow-900/20 border border-yellow-500/50 rounded-2xl p-6 animate-fade-in-up">
               <h3 className="text-yellow-400 font-semibold mb-3 flex items-center">

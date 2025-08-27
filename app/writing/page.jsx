@@ -1,6 +1,8 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
+import { createBrowserClient } from "@supabase/ssr"
+import { useRouter } from "next/navigation"
 import {
   FileText,
   Send,
@@ -16,7 +18,6 @@ import {
   Brain,
   Star,
   TrendingUp,
-  Copy,
   RefreshCw,
   BookOpen,
   Target,
@@ -33,12 +34,18 @@ const WritingPage = () => {
   const [uploadedImage, setUploadedImage] = useState(null)
   const [feedback, setFeedback] = useState(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [user, setUser] = useState(null)
+  const [isLoading, setIsLoading] = useState(true)
   const [wordCount, setWordCount] = useState(0)
   const [connectionStatus, setConnectionStatus] = useState("unknown")
   const [timeSpent, setTimeSpent] = useState(0)
   const [isTimerActive, setIsTimerActive] = useState(false)
   const fileInputRef = useRef(null)
   const timerRef = useRef(null)
+  const router = useRouter()
+
+  const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
 
   const essayPrompt = {
     type: "Task 2 - Opinion Essay",
@@ -55,7 +62,6 @@ const WritingPage = () => {
     ],
   }
 
-  // Enhanced AI prompt for structured feedback
   const createAIPrompt = (essayText) => {
     return `You're an IELTS examiner. Evaluate the following Task 2 essay with clear, structured feedback under these sections:
 
@@ -97,6 +103,44 @@ Essay:
   }
 
   useEffect(() => {
+    checkAuth()
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current)
+      }
+    }
+  }, [])
+
+  const checkAuth = async () => {
+    try {
+      const {
+        data: { session },
+        error,
+      } = await supabase.auth.getSession()
+
+      if (error) {
+        console.error("[v0] Auth error:", error)
+        router.push("/auth")
+        return
+      }
+
+      if (!session) {
+        console.log("[v0] No session found, redirecting to auth")
+        router.push("/auth")
+        return
+      }
+
+      setUser(session.user)
+      console.log("[v0] User authenticated:", session.user.email)
+    } catch (error) {
+      console.error("[v0] Auth check failed:", error)
+      router.push("/auth")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
     if (isTimerActive) {
       timerRef.current = setInterval(() => {
         setTimeSpent((prev) => prev + 1)
@@ -124,7 +168,6 @@ Essay:
         .filter((word) => word.length > 0).length,
     )
 
-    // Start timer on first keystroke
     if (!isTimerActive && text.length > 0) {
       setIsTimerActive(true)
     }
@@ -151,7 +194,7 @@ Essay:
   const testConnection = async () => {
     try {
       setConnectionStatus("testing")
-      const res = await fetch("https://ielts-backend-t6sq.onrender.com/api/health", {
+      const res = await fetch("http://localhost:8000/api/health", {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -183,28 +226,27 @@ Essay:
     }
 
     setIsAnalyzing(true)
-    setIsTimerActive(false) // Stop timer when submitting
+    setIsTimerActive(false)
     setConnectionStatus("unknown")
 
     try {
       console.log("Submitting essay:", essay.substring(0, 100) + "...")
 
-      // Use the enhanced structured prompt
       const structuredPrompt = createAIPrompt(essay.trim())
 
-      const res = await fetch("https://ielts-backend-t6sq.onrender.com/api/essay/evaluate-essay", {
+      const res = await fetch("http://localhost:8000/api/essay/evaluate-essay", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          text: structuredPrompt, // Send the structured prompt instead of just the essay
+          text: structuredPrompt,
           metadata: {
             wordCount: wordCount,
             taskType: "Task 2",
             timeSpent: timeSpent,
             timestamp: new Date().toISOString(),
-            originalEssay: essay.trim(), // Keep the original essay for reference
+            originalEssay: essay.trim(),
           },
         }),
       })
@@ -292,7 +334,6 @@ Essay:
   const extractSubScores = (text) => {
     const subScores = {}
 
-    // Look for sub-scores in format "TR: 6.5" or "Task Response: 6.5"
     const patterns = {
       taskResponse: /(?:TR|Task Response)[:\s]*(\d+\.?\d*)/i,
       coherenceCohesion: /(?:CC|Coherence.*?Cohesion)[:\s]*(\d+\.?\d*)/i,
@@ -316,7 +357,6 @@ Essay:
   const parseAnalysisSections = (text) => {
     const sections = []
 
-    // Split by numbered sections or **Section Name**
     const sectionPatterns = [
       /\d+\.\s*\*\*([^*]+)\*\*(.*?)(?=\d+\.\s*\*\*|$)/gs,
       /\*\*(\d+\.\s*[^*]+)\*\*(.*?)(?=\*\*\d+\.|$)/gs,
@@ -337,11 +377,10 @@ Essay:
             })
           }
         })
-        break // Use the first pattern that matches
+        break
       }
     }
 
-    // Fallback: look for common IELTS section headers
     if (sections.length === 0) {
       const commonHeaders = [
         "Task Response",
@@ -417,9 +456,115 @@ Essay:
     return recommendations
   }
 
-  const saveEssay = () => {
-    console.log("Saving essay to database...")
-    alert("Essay saved successfully!")
+  const saveEssay = async () => {
+    if (!essay.trim() || !feedback) {
+      alert("Please write your essay and get feedback before saving.")
+      return
+    }
+
+    setIsSaving(true)
+
+    try {
+      console.log("[v0] Starting save process...")
+
+      if (!user) {
+        throw new Error("User not authenticated. Please sign in again.")
+      }
+
+      console.log("[v0] User authenticated, getting student info...")
+
+      const { data: studentInfo, error: studentError } = await supabase
+        .from("studentinfo")
+        .select("id")
+        .eq("user_id", user.id)
+        .single()
+
+      console.log("[v0] Student info:", studentInfo)
+      console.log("[v0] Student error:", studentError)
+
+      if (studentError) {
+        if (studentError.code === "PGRST116") {
+          throw new Error("Student profile not found. Please complete your profile in the Student Info page first.")
+        }
+        throw new Error(`Database error: ${studentError.message}`)
+      }
+
+      if (!studentInfo) {
+        throw new Error("Student information not found. Please complete your profile first.")
+      }
+
+      console.log("[v0] Extracting scores from feedback...")
+
+      let bandScore = null
+      const bandScorePatterns = [
+        /Band Score[:\s]*(\d+(?:\.\d+)?)/i,
+        /Overall Band[:\s]*(\d+(?:\.\d+)?)/i,
+        /Score[:\s]*(\d+(?:\.\d+)?)/i,
+        /Band[:\s]*(\d+(?:\.\d+)?)/i,
+      ]
+
+      const feedbackText = typeof feedback === "string" ? feedback : feedback.rawFeedback || JSON.stringify(feedback)
+
+      for (const pattern of bandScorePatterns) {
+        const match = feedbackText.match(pattern)
+        if (match) {
+          bandScore = Number.parseFloat(match[1])
+          console.log("[v0] Band score found:", bandScore)
+          break
+        }
+      }
+
+      const taskResponseMatch = feedbackText.match(/Task Response[:\s]*(\d+(?:\.\d+)?)/i)
+      const coherenceMatch = feedbackText.match(/Coherence.*?Cohesion[:\s]*(\d+(?:\.\d+)?)/i)
+      const lexicalMatch = feedbackText.match(/Lexical Resource[:\s]*(\d+(?:\.\d+)?)/i)
+      const grammarMatch = feedbackText.match(/Grammar[:\s]*(\d+(?:\.\d+)?)/i)
+
+      const taskResponseScore = taskResponseMatch ? Number.parseFloat(taskResponseMatch[1]) : null
+      const coherenceCohesionScore = coherenceMatch ? Number.parseFloat(coherenceMatch[1]) : null
+      const lexicalResourceScore = lexicalMatch ? Number.parseFloat(lexicalMatch[1]) : null
+      const grammarScore = grammarMatch ? Number.parseFloat(grammarMatch[1]) : null
+
+      console.log("[v0] Extracted scores:", {
+        bandScore,
+        taskResponseScore,
+        coherenceCohesionScore,
+        lexicalResourceScore,
+        grammarScore,
+      })
+
+      const { data, error: insertError } = await supabase
+        .from("writing_result")
+        .insert({
+          student_id: studentInfo.id,
+          essay_text: essay.trim(),
+          essay_prompt: essayPrompt.question,
+          word_count: wordCount,
+          time_spent: timeSpent,
+          ai_feedback: feedbackText,
+          band_score: bandScore,
+          task_response_score: taskResponseScore,
+          coherence_cohesion_score: coherenceCohesionScore,
+          lexical_resource_score: lexicalResourceScore,
+          grammar_score: grammarScore,
+          uploaded_image_url: uploadedImage,
+        })
+        .select()
+
+      console.log("[v0] Insert result:", data)
+      console.log("[v0] Insert error:", insertError)
+
+      if (insertError) {
+        throw new Error(`Database error: ${insertError.message}`)
+      }
+
+      alert("Writing practice result saved successfully!")
+      console.log("[v0] Save completed successfully")
+    } catch (error) {
+      console.error("[v0] Save error:", error)
+      alert(`Save failed: ${error.message}`)
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const resetEssay = () => {
@@ -487,19 +632,32 @@ Essay:
 
   const wordStatus = getWordCountStatus()
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-400 mx-auto mb-4"></div>
+          <p className="text-gray-400">Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return null
+  }
+
   return (
     <div className="min-h-screen bg-gray-900">
       <Navbar />
 
       <div className="relative min-h-screen py-6 overflow-hidden">
-        {/* Animated Background */}
         <div className="absolute inset-0 overflow-hidden">
           <div className="absolute top-20 right-20 w-96 h-96 bg-green-500/3 rounded-full animate-pulse"></div>
           <div className="absolute bottom-20 left-20 w-96 h-96 bg-blue-500/3 rounded-full animate-pulse delay-1000"></div>
         </div>
 
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Header */}
           <div className="mb-6 animate-fade-in-up">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center">
@@ -512,7 +670,6 @@ Essay:
                 </button>
               </div>
 
-              {/* Connection Status */}
               <div className="flex items-center space-x-4">
                 <span className={`text-sm ${getConnectionStatusColor()}`}>
                   AI Status:{" "}
@@ -545,7 +702,6 @@ Essay:
             </div>
           </div>
 
-          {/* Stats Bar - Rectangular Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8 animate-fade-in-up delay-200">
             <div className="bg-gray-800/60 backdrop-blur-sm rounded-2xl p-6 border border-gray-700 text-center card-hover">
               <div className="flex items-center justify-center mb-3">
@@ -583,7 +739,6 @@ Essay:
             </div>
           </div>
 
-          {/* Essay Prompt - Rectangular Card */}
           <div className="bg-gradient-to-r from-gray-800/70 to-gray-700/70 backdrop-blur-sm rounded-3xl p-10 border border-gray-600 mb-8 animate-fade-in-up delay-300 card-hover hover-glow">
             <div className="flex items-center justify-between mb-8">
               <div className="flex items-center">
@@ -646,7 +801,6 @@ Essay:
           </div>
 
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-            {/* Writing Section - Rectangular Card */}
             <div className="xl:col-span-2 animate-fade-in-up delay-400">
               <div className="bg-gray-800/60 backdrop-blur-sm rounded-3xl p-8 border border-gray-700 card-hover hover-glow">
                 <div className="flex items-center justify-between mb-8">
@@ -679,7 +833,6 @@ Essay:
                     style={{ fontFamily: "Georgia, serif" }}
                   />
 
-                  {/* Writing Progress Indicator */}
                   <div className="absolute bottom-6 right-6 bg-gray-800/80 backdrop-blur-sm rounded-xl px-4 py-3 border border-gray-600">
                     <div className="flex items-center space-x-3 text-sm text-gray-400">
                       <div
@@ -690,7 +843,6 @@ Essay:
                   </div>
                 </div>
 
-                {/* Image Upload Section - Rectangular Card */}
                 <div className="mt-8 border-t border-gray-600 pt-8">
                   <div className="flex items-center justify-between mb-6">
                     <h3 className="text-xl font-semibold text-gray-300 flex items-center">
@@ -737,7 +889,6 @@ Essay:
                   />
                 </div>
 
-                {/* Action Buttons - Rectangular */}
                 <div className="flex flex-wrap gap-4 mt-10 pt-8 border-t border-gray-600">
                   <button
                     onClick={submitEssay}
@@ -759,20 +910,20 @@ Essay:
 
                   <button
                     onClick={saveEssay}
-                    disabled={!essay.trim()}
-                    className="group bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-8 py-4 rounded-2xl font-semibold transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                    disabled={!essay.trim() || !feedback || isSaving}
+                    className="group bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white px-8 py-4 rounded-2xl font-semibold transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
                   >
-                    <Save className="h-5 w-5 mr-2 group-hover:scale-110 transition-transform duration-300" />
-                    Save Draft
-                  </button>
-
-                  <button
-                    onClick={copyEssayToClipboard}
-                    disabled={!essay.trim()}
-                    className="group bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white px-8 py-4 rounded-2xl font-semibold transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-                  >
-                    <Copy className="h-5 w-5 mr-2 group-hover:scale-110 transition-transform duration-300" />
-                    Copy Text
+                    {isSaving ? (
+                      <>
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="h-5 w-5 mr-2 group-hover:scale-110 transition-transform duration-300" />
+                        Save Result
+                      </>
+                    )}
                   </button>
 
                   <button
@@ -786,7 +937,6 @@ Essay:
               </div>
             </div>
 
-            {/* Feedback Section - Rectangular Card */}
             <div className="xl:col-span-1 animate-fade-in-up delay-600">
               <div className="bg-gray-800/60 backdrop-blur-sm rounded-3xl p-8 border border-gray-700 sticky top-8 card-hover hover-glow">
                 <h2 className="text-2xl font-bold text-white mb-8 flex items-center">
@@ -848,7 +998,6 @@ Essay:
 
                 {feedback && (
                   <div className="space-y-8">
-                    {/* Error Display */}
                     {feedback.error ? (
                       <div className="bg-red-600/20 border-2 border-red-500 rounded-2xl p-8 animate-fade-in-up">
                         <div className="flex items-center mb-6">
@@ -889,7 +1038,6 @@ Essay:
                       </div>
                     ) : (
                       <>
-                        {/* Band Score Display */}
                         {feedback.bandScore !== null && (
                           <div className="text-center bg-gradient-to-r from-gray-700/50 to-gray-600/50 rounded-3xl p-10 border border-gray-600 animate-scale-in">
                             <div className="flex items-center justify-center mb-6">
@@ -906,7 +1054,6 @@ Essay:
                             </div>
                             <div className="text-gray-400">Based on IELTS Writing Task 2 criteria</div>
 
-                            {/* Sub-scores if available */}
                             {feedback.subScores && Object.keys(feedback.subScores).length > 0 && (
                               <div className="mt-8 grid grid-cols-2 gap-4">
                                 {Object.entries(feedback.subScores).map(([skill, score]) => (
@@ -922,7 +1069,6 @@ Essay:
                           </div>
                         )}
 
-                        {/* Analysis Sections */}
                         {feedback.sections && feedback.sections.length > 0 && (
                           <div className="space-y-6">
                             <h3 className="text-xl font-bold text-white flex items-center">
@@ -959,7 +1105,6 @@ Essay:
                           </div>
                         )}
 
-                        {/* Recommendations */}
                         {feedback.recommendations && feedback.recommendations.length > 0 && (
                           <div className="bg-gradient-to-r from-yellow-600/20 to-orange-600/20 rounded-2xl p-8 border border-yellow-500/30 animate-fade-in-up delay-300">
                             <h3 className="text-white font-bold mb-6 flex items-center text-xl">
@@ -977,7 +1122,6 @@ Essay:
                           </div>
                         )}
 
-                        {/* Raw Feedback (Collapsible) */}
                         {feedback.rawFeedback && (
                           <div className="bg-gray-700/30 rounded-2xl p-8 border border-gray-600 animate-fade-in-up delay-400">
                             <details>

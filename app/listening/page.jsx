@@ -1,7 +1,6 @@
 "use client"
 
 import React from "react"
-
 import { useState, useRef, useEffect } from "react"
 import {
   Headphones,
@@ -19,11 +18,19 @@ import {
   Wifi,
   WifiOff,
   Target,
+  Save,
 } from "lucide-react"
 import Navbar from "../../components/Navbar"
 import Footer from "../../components/Footer"
+import { createBrowserClient } from "@supabase/ssr"
 
 const ListeningPage = () => {
+  const [supabase] = useState(() =>
+    createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
+  )
+  const [user, setUser] = useState(null)
+  const [studentProfile, setStudentProfile] = useState(null)
+
   // Backend quiz state
   const [quiz, setQuiz] = useState(null)
   const [answers, setAnswers] = useState([])
@@ -31,6 +38,9 @@ const ListeningPage = () => {
   const [feedback, setFeedback] = useState([])
   const [backendError, setBackendError] = useState("")
   const [connectionStatus, setConnectionStatus] = useState("checking")
+
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
 
   // Audio state
   const [isPlaying, setIsPlaying] = useState(false)
@@ -49,7 +59,7 @@ const ListeningPage = () => {
     const loadQuiz = async () => {
       try {
         setConnectionStatus("connecting")
-        const response = await fetch("https://ielts-backend-t6sq.onrender.com/api/listening/practice")
+        const response = await fetch("http://localhost:8000/api/listening/practice")
 
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`)
@@ -72,7 +82,7 @@ const ListeningPage = () => {
       } catch (error) {
         console.error("Failed to load listening quiz:", error)
         setBackendError(
-          "Failed to load listening quiz from backend. Please check if your server is running on https://ielts-backend-t6sq.onrender.com",
+          "Failed to load listening quiz from backend. Please check if your server is running on http://localhost:8000",
         )
         setConnectionStatus("disconnected")
       }
@@ -80,6 +90,24 @@ const ListeningPage = () => {
 
     loadQuiz()
   }, [])
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      if (user) {
+        setUser(user)
+        // Get student profile
+        const { data: profile } = await supabase.from("studentinfo").select("*").eq("user_id", user.id).single()
+        setStudentProfile(profile)
+      } else {
+        // Redirect to auth if not authenticated
+        window.location.href = "/auth"
+      }
+    }
+    checkAuth()
+  }, [supabase])
 
   // Timer effect
   useEffect(() => {
@@ -124,7 +152,7 @@ const ListeningPage = () => {
     setBackendError("")
 
     try {
-      const response = await fetch("https://ielts-backend-t6sq.onrender.com/api/listening/submit", {
+      const response = await fetch("http://localhost:8000/api/listening/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -195,7 +223,7 @@ const ListeningPage = () => {
     // Reload quiz from backend
     try {
       setConnectionStatus("connecting")
-      const response = await fetch("https://ielts-backend-t6sq.onrender.com/api/listening/practice")
+      const response = await fetch("http://localhost:8000/api/listening/practice")
       const data = await response.json()
 
       if (data && data.questions && Array.isArray(data.questions)) {
@@ -261,17 +289,72 @@ const ListeningPage = () => {
     const total = feedback.length
     const percentage = (correct / total) * 100
 
+    // Official IELTS Listening Band Score Conversion Table
     let bandScore = 0
-    if (percentage >= 90) bandScore = 9.0
-    else if (percentage >= 80) bandScore = 8.0
-    else if (percentage >= 70) bandScore = 7.0
-    else if (percentage >= 60) bandScore = 6.0
-    else if (percentage >= 50) bandScore = 5.0
-    else if (percentage >= 40) bandScore = 4.0
-    else if (percentage >= 30) bandScore = 3.0
+    if (correct >= 39) bandScore = 9.0
+    else if (correct >= 37) bandScore = 8.5
+    else if (correct >= 35) bandScore = 8.0
+    else if (correct >= 32) bandScore = 7.5
+    else if (correct >= 30) bandScore = 7.0
+    else if (correct >= 26) bandScore = 6.5
+    else if (correct >= 23) bandScore = 6.0
+    else if (correct >= 18) bandScore = 5.5
+    else if (correct >= 16) bandScore = 5.0
+    else if (correct >= 13) bandScore = 4.5
+    else if (correct >= 10) bandScore = 4.0
+    else if (correct >= 7) bandScore = 3.5
+    else if (correct >= 5) bandScore = 3.0
+    else if (correct >= 3) bandScore = 2.5
     else bandScore = 2.0
 
     return { correct, total, percentage, bandScore }
+  }
+
+  const saveResult = async () => {
+    if (!user || !studentProfile || !score) {
+      alert("Please make sure you are logged in and have completed the test.")
+      return
+    }
+
+    setIsSaving(true)
+    setSaveSuccess(false)
+
+    try {
+      console.log("[v0] Saving listening result:", {
+        student_id: studentProfile.id,
+        correct_answers: score.correct,
+        score: score.correct,
+        total_questions: score.total,
+        band_score: score.bandScore,
+        time_taken_minutes: Math.ceil(timeSpent / 60),
+        user_answers: JSON.stringify(answers),
+      })
+
+      const { data, error } = await supabase.from("listening_results").insert({
+        student_id: studentProfile.id,
+        listening_set_id: quiz?.id || null,
+        user_answers: JSON.stringify(answers),
+        correct_answers: score.correct,
+        score: score.correct,
+        total_questions: score.total,
+        band_score: score.bandScore,
+        time_taken_minutes: Math.ceil(timeSpent / 60),
+      })
+
+      if (error) {
+        console.error("[v0] Save error:", error)
+        throw error
+      }
+
+      console.log("[v0] Save successful:", data)
+      setSaveSuccess(true)
+      alert("Result saved successfully!")
+    } catch (error) {
+      console.error("[v0] Save failed:", error)
+      alert(`Save failed: ${error.message}`)
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const score = calculateScore()
@@ -319,7 +402,7 @@ const ListeningPage = () => {
                 <div className="text-left bg-gray-800/50 rounded-lg p-4">
                   <h3 className="text-white font-semibold mb-2">Troubleshooting:</h3>
                   <ul className="text-gray-300 text-sm space-y-1">
-                    <li>• Make sure your backend server is running on https://ielts-backend-t6sq.onrender.com</li>
+                    <li>• Make sure your backend server is running on http://localhost:8000</li>
                     <li>• Check if the /api/listening/practice endpoint is available</li>
                     <li>• Verify CORS settings allow requests from this domain</li>
                   </ul>
@@ -610,7 +693,7 @@ const ListeningPage = () => {
                         <div className="text-gray-400 text-sm">Time Used</div>
                       </div>
                     </div>
-                    <div className="flex items-center justify-center">
+                    <div className="flex items-center justify-center mb-4">
                       <Award className="h-6 w-6 text-yellow-400 mr-2 icon-fade" />
                       <span className="text-white">
                         {score.bandScore >= 7
@@ -620,6 +703,26 @@ const ListeningPage = () => {
                             : "Keep practicing!"}
                       </span>
                     </div>
+
+                    {!saveSuccess && (
+                      <button
+                        onClick={saveResult}
+                        disabled={isSaving}
+                        className="group bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white px-6 py-3 rounded-lg font-semibold transition-smooth transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed flex items-center mx-auto mb-4"
+                      >
+                        <Save className="h-5 w-5 mr-2 group-hover:scale-110 transition-smooth" />
+                        {isSaving ? "Saving..." : "Save Result"}
+                      </button>
+                    )}
+
+                    {saveSuccess && (
+                      <div className="bg-green-600/20 border border-green-500 rounded-lg p-3 mb-4">
+                        <div className="flex items-center justify-center text-green-400">
+                          <CheckCircle className="h-5 w-5 mr-2" />
+                          Result saved successfully!
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 

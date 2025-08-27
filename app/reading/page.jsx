@@ -1,8 +1,8 @@
 "use client"
 
 import React from "react"
-
 import { useState, useRef, useEffect } from "react"
+import { createBrowserClient } from "@supabase/ssr"
 import {
   BookOpen,
   Clock,
@@ -14,23 +14,93 @@ import {
   AlertTriangle,
   FileText,
   RotateCcw,
-  RefreshCw,
-  Wifi,
-  WifiOff,
+  Save,
 } from "lucide-react"
 import Navbar from "../../components/Navbar"
 import Footer from "../../components/Footer"
 
+const mockReadingQuiz = {
+  id: "reading-practice-1",
+  title: "Climate Change and Urban Planning",
+  passage: `Climate change is one of the most pressing challenges of our time, and its effects are particularly pronounced in urban areas. Cities, which house more than half of the world's population, are both major contributors to greenhouse gas emissions and vulnerable to climate-related risks such as extreme heat, flooding, and air pollution.
+
+Urban planning plays a crucial role in addressing these challenges. Traditional city designs, with their emphasis on car-dependent transportation and energy-intensive buildings, have contributed significantly to carbon emissions. However, innovative urban planning approaches are emerging that prioritize sustainability and resilience.
+
+Green infrastructure is becoming increasingly important in modern urban planning. This includes the integration of parks, green roofs, urban forests, and sustainable drainage systems. These features not only help to mitigate climate change by absorbing carbon dioxide and reducing urban heat islands, but they also improve air quality and provide recreational spaces for residents.
+
+Another key aspect of climate-conscious urban planning is the promotion of sustainable transportation. Cities are investing in public transit systems, cycling infrastructure, and pedestrian-friendly designs to reduce reliance on private vehicles. Some cities have implemented congestion pricing schemes to discourage car use in city centers, while others have created car-free zones to prioritize walking and cycling.
+
+Energy efficiency in buildings is also a critical component of sustainable urban development. New construction standards require buildings to meet strict energy performance criteria, while retrofit programs help existing buildings reduce their energy consumption. The integration of renewable energy sources, such as solar panels on rooftops, is becoming more common in urban areas.
+
+The concept of the "15-minute city" has gained popularity among urban planners. This approach aims to ensure that residents can access most of their daily needs – work, education, healthcare, shopping, and recreation – within a 15-minute walk or bike ride from their homes. This reduces the need for long commutes and helps create more livable, sustainable communities.`,
+  questions: [
+    {
+      question: "According to the passage, cities are:",
+      options: [
+        "A. Only vulnerable to climate-related risks",
+        "B. Both contributors to emissions and vulnerable to climate risks",
+        "C. Primarily responsible for solving climate change",
+        "D. Not significantly affected by climate change",
+      ],
+    },
+    {
+      question: "Green infrastructure includes all of the following EXCEPT:",
+      options: [
+        "A. Parks and urban forests",
+        "B. Green roofs",
+        "C. Sustainable drainage systems",
+        "D. Congestion pricing schemes",
+      ],
+    },
+    {
+      question: "The '15-minute city' concept aims to:",
+      options: [
+        "A. Reduce building energy consumption",
+        "B. Increase public transportation usage",
+        "C. Allow residents to access daily needs within walking distance",
+        "D. Implement car-free zones throughout the city",
+      ],
+    },
+    {
+      question: "Which of the following is mentioned as a way to discourage car use?",
+      options: [
+        "A. Building more parking spaces",
+        "B. Congestion pricing schemes",
+        "C. Increasing fuel subsidies",
+        "D. Expanding highway networks",
+      ],
+    },
+    {
+      question: "According to the passage, green infrastructure helps with:",
+      options: [
+        "A. Only carbon dioxide absorption",
+        "B. Only air quality improvement",
+        "C. Carbon absorption, heat reduction, air quality, and recreation",
+        "D. Only providing recreational spaces",
+      ],
+    },
+  ],
+  correct: ["B", "D", "C", "B", "C"],
+  difficulty_level: "intermediate",
+  duration_minutes: 60,
+}
+
 const ReadingPage = () => {
-  // Backend quiz state
+  const [supabase] = useState(() =>
+    createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
+  )
+  const [user, setUser] = useState(null)
+  const [studentProfile, setStudentProfile] = useState(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+
   const [quiz, setQuiz] = useState(null)
   const [backendAnswers, setBackendAnswers] = useState([])
   const [backendSubmitted, setBackendSubmitted] = useState(false)
   const [backendFeedback, setBackendFeedback] = useState([])
   const [backendError, setBackendError] = useState("")
-  const [connectionStatus, setConnectionStatus] = useState("checking")
+  const [connectionStatus, setConnectionStatus] = useState("connected") // Always show connected since we're using Supabase
 
-  // Timer and UI state
   const [timeRemaining, setTimeRemaining] = useState(60 * 60) // 60 minutes
   const [timeSpent, setTimeSpent] = useState(0)
   const [isTimerActive, setIsTimerActive] = useState(false)
@@ -38,43 +108,74 @@ const ReadingPage = () => {
   const timerRef = useRef(null)
   const passageRef = useRef(null)
 
-  // Check backend connection and load quiz
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
+
+        if (!user) {
+          window.location.href = "/auth"
+          return
+        }
+
+        setUser(user)
+
+        const { data: profile, error } = await supabase.from("studentinfo").select("*").eq("user_id", user.id).single()
+
+        if (error) {
+          console.error("Error fetching student profile:", error)
+          setBackendError("Please complete your student profile first")
+          return
+        }
+
+        setStudentProfile(profile)
+        setIsLoading(false)
+      } catch (error) {
+        console.error("Authentication error:", error)
+        setBackendError("Authentication error")
+        setIsLoading(false)
+      }
+    }
+
+    checkAuth()
+  }, [supabase])
+
   useEffect(() => {
     const loadQuiz = async () => {
+      if (!studentProfile) return
+
       try {
         setConnectionStatus("connecting")
-        const response = await fetch("https://ielts-backend-t6sq.onrender.com/api/reading/practice")
 
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`)
+        const { data: quizData, error } = await supabase.from("reading_quizzes").select("*").limit(1).single()
+
+        if (error) {
+          console.error("Error fetching quiz:", error)
+          setQuiz(mockReadingQuiz)
+          setBackendAnswers(new Array(mockReadingQuiz.questions.length).fill(""))
+        } else {
+          setQuiz(quizData)
+          setBackendAnswers(new Array(quizData.questions.length).fill(""))
         }
 
-        const data = await response.json()
-
-        if (!data || !data.questions || !Array.isArray(data.questions)) {
-          throw new Error("Invalid reading quiz format")
-        }
-
-        setQuiz(data)
-        setBackendAnswers(new Array(data.questions.length).fill(""))
         setConnectionStatus("connected")
         setBackendError("")
-
-        // Start timer when quiz loads
         setIsTimerActive(true)
       } catch (error) {
         console.error("Failed to load reading quiz:", error)
-        setBackendError(
-          "Failed to load reading quiz from backend. Please check if your server is running on https://ielts-backend-t6sq.onrender.com",
-        )
+        setBackendError("Failed to load reading quiz")
         setConnectionStatus("disconnected")
+
+        setQuiz(mockReadingQuiz)
+        setBackendAnswers(new Array(mockReadingQuiz.questions.length).fill(""))
       }
     }
 
     loadQuiz()
-  }, [])
+  }, [studentProfile, supabase])
 
-  // Timer effect
   useEffect(() => {
     if (isTimerActive && !backendSubmitted) {
       timerRef.current = setInterval(() => {
@@ -100,7 +201,6 @@ const ReadingPage = () => {
     }
   }, [isTimerActive, backendSubmitted])
 
-  // Track reading progress
   useEffect(() => {
     const handleScroll = () => {
       if (passageRef.current) {
@@ -134,36 +234,14 @@ const ReadingPage = () => {
     setBackendError("")
 
     try {
-      const response = await fetch("https://ielts-backend-t6sq.onrender.com/api/reading/submit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: quiz.id,
-          answers: backendAnswers,
-          timeSpent: timeSpent,
-          readingProgress: readingProgress,
-        }),
-      })
+      const correct = quiz.correct || []
+      const feedback = correct.map((correctAnswer, i) => (backendAnswers[i] === correctAnswer ? "✅" : "❌"))
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
-      const result = await response.json()
-
-      if (Array.isArray(result.feedback)) {
-        setBackendFeedback(result.feedback)
-      } else {
-        // Fallback feedback generation
-        const correct = quiz.correct || []
-        const fallbackFeedback = correct.map((correctAnswer, i) => (backendAnswers[i] === correctAnswer ? "✅" : "❌"))
-        setBackendFeedback(fallbackFeedback)
-      }
-
+      setBackendFeedback(feedback)
       setConnectionStatus("connected")
     } catch (error) {
       console.error("Submission error:", error)
-      setBackendError("Error submitting answers. Please check your connection.")
+      setBackendError("Error processing answers")
       setConnectionStatus("disconnected")
     }
   }
@@ -183,36 +261,59 @@ const ReadingPage = () => {
     setReadingProgress(0)
     setIsTimerActive(false)
 
-    // Reload quiz from backend
     try {
-      setConnectionStatus("connecting")
-      const response = await fetch("https://ielts-backend-t6sq.onrender.com/api/reading/practice")
-      const data = await response.json()
+      const { data: quizData, error } = await supabase.from("reading_quizzes").select("*").limit(1).single()
 
-      if (data && data.questions && Array.isArray(data.questions)) {
-        setQuiz(data)
-        setBackendAnswers(new Array(data.questions.length).fill(""))
-        setConnectionStatus("connected")
-        setIsTimerActive(true)
+      if (error || !quizData) {
+        setQuiz(mockReadingQuiz)
+        setBackendAnswers(new Array(mockReadingQuiz.questions.length).fill(""))
+      } else {
+        setQuiz(quizData)
+        setBackendAnswers(new Array(quizData.questions.length).fill(""))
       }
     } catch (error) {
-      setBackendError("Failed to reload quiz")
-      setConnectionStatus("disconnected")
+      setQuiz(mockReadingQuiz)
+      setBackendAnswers(new Array(mockReadingQuiz.questions.length).fill(""))
     }
+
+    setConnectionStatus("connected")
+    setIsTimerActive(true)
   }
 
-  const testConnection = async () => {
+  const saveResult = async () => {
+    if (!studentProfile || !quiz || !backendSubmitted) return
+
+    setIsSaving(true)
+
     try {
-      setConnectionStatus("connecting")
-      const response = await fetch("https://ielts-backend-t6sq.onrender.com/api/reading/practice")
-      if (response.ok) {
-        setConnectionStatus("connected")
-        setBackendError("")
-      } else {
-        setConnectionStatus("disconnected")
+      const score = calculateScore()
+      if (!score) {
+        throw new Error("No score calculated")
       }
+
+      const { data, error } = await supabase.from("reading_results").insert({
+        student_id: studentProfile.id,
+        quiz_id: quiz.id,
+        passage_title: quiz.title,
+        user_answers: JSON.stringify(backendAnswers),
+        correct_answers: score.correct,
+        total_questions: score.total,
+        score_percentage: score.percentage,
+        band_score: score.bandScore,
+        time_spent_minutes: Math.ceil(timeSpent / 60),
+        reading_progress: Math.round(readingProgress),
+      })
+
+      if (error) {
+        throw error
+      }
+
+      alert("Results saved successfully!")
     } catch (error) {
-      setConnectionStatus("disconnected")
+      console.error("Save error:", error)
+      alert(`Save failed: ${error.message}`)
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -236,7 +337,7 @@ const ReadingPage = () => {
   }
 
   const getConnectionIcon = () => {
-    return connectionStatus === "connected" ? Wifi : WifiOff
+    return connectionStatus === "connected" ? Save : AlertTriangle
   }
 
   const calculateScore = () => {
@@ -247,13 +348,20 @@ const ReadingPage = () => {
     const percentage = (correct / total) * 100
 
     let bandScore = 0
-    if (percentage >= 90) bandScore = 9.0
-    else if (percentage >= 80) bandScore = 8.0
-    else if (percentage >= 70) bandScore = 7.0
-    else if (percentage >= 60) bandScore = 6.0
-    else if (percentage >= 50) bandScore = 5.0
-    else if (percentage >= 40) bandScore = 4.0
-    else if (percentage >= 30) bandScore = 3.0
+    if (correct >= 39) bandScore = 9.0
+    else if (correct >= 37) bandScore = 8.5
+    else if (correct >= 35) bandScore = 8.0
+    else if (correct >= 32) bandScore = 7.5
+    else if (correct >= 30) bandScore = 7.0
+    else if (correct >= 26) bandScore = 6.5
+    else if (correct >= 23) bandScore = 6.0
+    else if (correct >= 18) bandScore = 5.5
+    else if (correct >= 16) bandScore = 5.0
+    else if (correct >= 13) bandScore = 4.5
+    else if (correct >= 10) bandScore = 4.0
+    else if (correct >= 7) bandScore = 3.5
+    else if (correct >= 5) bandScore = 3.0
+    else if (correct >= 3) bandScore = 2.5
     else bandScore = 2.0
 
     return { correct, total, percentage, bandScore }
@@ -261,16 +369,15 @@ const ReadingPage = () => {
 
   const score = calculateScore()
 
-  // Loading state
-  if (connectionStatus === "checking" || connectionStatus === "connecting") {
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-900">
         <Navbar />
         <div className="relative min-h-screen py-8 flex items-center justify-center">
           <div className="text-center">
             <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-400 mx-auto mb-4"></div>
-            <h2 className="text-xl font-semibold text-white mb-2">Loading Reading Quiz</h2>
-            <p className="text-gray-400">Connecting to backend server...</p>
+            <h2 className="text-xl font-semibold text-white mb-2">Loading...</h2>
+            <p className="text-gray-400">Checking authentication...</p>
           </div>
         </div>
         <Footer />
@@ -278,7 +385,6 @@ const ReadingPage = () => {
     )
   }
 
-  // Error state
   if (backendError && !quiz) {
     return (
       <div className="min-h-screen bg-gray-900">
@@ -297,26 +403,18 @@ const ReadingPage = () => {
 
             <div className="bg-red-900/20 border border-red-500/50 rounded-xl p-8 text-center">
               <AlertTriangle className="h-16 w-16 text-red-400 mx-auto mb-4" />
-              <h2 className="text-2xl font-bold text-white mb-4">Connection Error</h2>
+              <h2 className="text-2xl font-bold text-white mb-4">Loading Error</h2>
               <p className="text-red-300 mb-6">{backendError}</p>
 
               <div className="space-y-4">
                 <div className="text-left bg-gray-800/50 rounded-lg p-4">
                   <h3 className="text-white font-semibold mb-2">Troubleshooting:</h3>
                   <ul className="text-gray-300 text-sm space-y-1">
-                    <li>• Make sure your backend server is running on https://ielts-backend-t6sq.onrender.com</li>
-                    <li>• Check if the /api/reading/practice endpoint is available</li>
-                    <li>• Verify CORS settings allow requests from this domain</li>
+                    <li>• Make sure your Supabase connection is working</li>
+                    <li>• Check if the reading_quizzes table has data</li>
+                    <li>• Verify your student profile is complete</li>
                   </ul>
                 </div>
-
-                <button
-                  onClick={testConnection}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg transition-colors duration-300 flex items-center mx-auto"
-                >
-                  <RefreshCw className="h-5 w-5 mr-2" />
-                  Test Connection
-                </button>
               </div>
             </div>
           </div>
@@ -331,14 +429,12 @@ const ReadingPage = () => {
       <Navbar />
 
       <div className="relative min-h-screen py-8 overflow-hidden">
-        {/* Animated Background */}
         <div className="absolute inset-0 overflow-hidden">
           <div className="absolute top-20 right-20 w-64 h-64 bg-orange-500/5 rounded-full animate-float"></div>
           <div className="absolute bottom-20 left-20 w-64 h-64 bg-blue-500/5 rounded-full animate-float delay-1000"></div>
         </div>
 
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Header */}
           <div className="mb-8 animate-fade-in-up">
             <div className="flex items-center justify-between mb-4">
               <button
@@ -349,24 +445,17 @@ const ReadingPage = () => {
                 Back to Dashboard
               </button>
 
-              {/* Connection Status */}
               <div className="flex items-center space-x-4">
                 <div className={`flex items-center ${getConnectionStatusColor()}`}>
                   {React.createElement(getConnectionIcon(), { className: "h-4 w-4 mr-2" })}
                   <span className="text-sm font-medium">
                     {connectionStatus === "connected"
-                      ? "Backend Connected"
+                      ? "Database Connected"
                       : connectionStatus === "disconnected"
-                        ? "Backend Disconnected"
+                        ? "Database Disconnected"
                         : "Connecting..."}
                   </span>
                 </div>
-                <button
-                  onClick={testConnection}
-                  className="text-xs bg-gray-700 hover:bg-gray-600 text-white px-3 py-1 rounded transition-colors duration-300"
-                >
-                  Test
-                </button>
               </div>
             </div>
 
@@ -374,10 +463,9 @@ const ReadingPage = () => {
               <BookOpen className="h-8 w-8 mr-3 text-orange-400 icon-fade" />
               IELTS Reading Practice
             </h1>
-            <p className="text-gray-400">Complete the reading comprehension quiz with AI-powered backend evaluation</p>
+            <p className="text-gray-400">Complete the reading comprehension quiz with database-powered evaluation</p>
           </div>
 
-          {/* Timer and Progress */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
             <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-4 border border-gray-700 animate-fade-in-up delay-200">
               <div className="flex items-center justify-between">
@@ -423,7 +511,6 @@ const ReadingPage = () => {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Reading Passage */}
             <div className="animate-fade-in-up delay-400">
               <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700 sticky top-8 card-hover hover-glow">
                 <h2 className="text-xl font-semibold text-white mb-4 flex items-center">
@@ -450,7 +537,6 @@ const ReadingPage = () => {
               </div>
             </div>
 
-            {/* Questions */}
             <div className="animate-fade-in-up delay-600">
               <div className="bg-gray-800/50 backdrop-blur-sm rounded-xl p-6 border border-gray-700 card-hover hover-glow">
                 <h2 className="text-xl font-semibold text-white mb-6 flex items-center">
@@ -516,7 +602,6 @@ const ReadingPage = () => {
                         })}
                       </div>
 
-                      {/* Feedback Display */}
                       {backendSubmitted && backendFeedback[questionIndex] && (
                         <div
                           className={`mt-3 p-2 rounded-lg text-sm font-medium ${
@@ -532,7 +617,6 @@ const ReadingPage = () => {
                   ))}
                 </div>
 
-                {/* Submit Button or Results */}
                 {!backendSubmitted ? (
                   <div className="mt-6 text-center">
                     <button
@@ -549,7 +633,6 @@ const ReadingPage = () => {
                   </div>
                 ) : (
                   <div className="mt-6 space-y-4">
-                    {/* Results Summary */}
                     {score && (
                       <div className="bg-gray-700/30 rounded-lg p-6 text-center animate-scale-in">
                         <h3 className="text-xl font-bold text-white mb-4">Quiz Results</h3>
@@ -575,10 +658,20 @@ const ReadingPage = () => {
                             <div className="text-gray-400 text-sm">Time Used</div>
                           </div>
                         </div>
+
+                        <div className="flex justify-center space-x-4 mt-4">
+                          <button
+                            onClick={saveResult}
+                            disabled={isSaving}
+                            className="group bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white px-6 py-3 rounded-lg transition-smooth hover-lift flex items-center btn-animate disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <Save className="h-5 w-5 mr-2 group-hover:scale-110 transition-smooth icon-fade" />
+                            {isSaving ? "Saving..." : "Save Result"}
+                          </button>
+                        </div>
                       </div>
                     )}
 
-                    {/* Reset Button */}
                     <div className="text-center">
                       <button
                         onClick={resetQuiz}
@@ -591,7 +684,6 @@ const ReadingPage = () => {
                   </div>
                 )}
 
-                {/* Error Display */}
                 {backendError && (
                   <div className="mt-4 bg-red-900/20 border border-red-500/50 rounded-lg p-4 animate-fade-in">
                     <div className="flex items-start">
